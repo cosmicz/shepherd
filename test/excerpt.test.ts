@@ -5,7 +5,7 @@ import { RoutedAnalyzer, type LocalModelPort } from '../src/application/routing.
 import type { Grant, TextFrame } from '../src/domain/assessment.ts';
 import { GrantRegistry } from '../src/server/consent.ts';
 
-// The cloud excerpt is always anchored (rules spans, else the local
+// Contract: the cloud excerpt is always anchored (rules spans, else the local
 // cue located in the text); with no anchor nothing is dispatched.
 const now = Date.now();
 const session = { session_id: 's-excerpt', generation: 1 };
@@ -13,7 +13,7 @@ const grant: Grant = { id: 'g-excerpt', ...session, source: 'native', scope: 're
 const witness = 'Inbox (3) - jdoe - Mail  mail.example.com/u/0/inbox?session=Ab9xQz7  Dr. Alice Nguyen re: biopsy results  Grandma we need to talk privately';
 const frame = (text: string): TextFrame => ({ frame_id: `f-${Math.random()}`, source: 'native', ...session, consent: grant, captured_at: new Date(now).toISOString(), text });
 
-function rig(cue: string) {
+function rig(cue: string, quoteExcerpts = false) {
   const bodies: string[] = [];
   const consent = new GrantRegistry();
   consent.register(grant);
@@ -22,7 +22,7 @@ function rig(cue: string) {
     bodies.push(body);
     return { choices: [{ message: { content: JSON.stringify({ verdict: 'benign', reasons: [], pattern: 'other', rationale: 'r' }) } }], usage: { cost: 0.004 } };
   } });
-  return { bodies, analyzer: new RoutedAnalyzer({ extractor: { extract: async (f) => ('text' in f ? f.text : '') }, local, cloud, consent }) };
+  return { bodies, analyzer: new RoutedAnalyzer({ extractor: { extract: async (f) => ('text' in f ? f.text : '') }, local, cloud, consent, quoteExcerpts }) };
 }
 
 test('witness: no rules evidence and an unlocatable cue -> no dispatch, no_anchor, zero remote calls', async () => {
@@ -35,20 +35,20 @@ test('witness: no rules evidence and an unlocatable cue -> no dispatch, no_ancho
 });
 
 test('a located cue sends only its own line: adjacent lines never leave (no blank-line padding)', async () => {
-  const text = ['Inbox - jdoe - Mail', 'Dr. Alice Nguyen re: biopsy results', 'Grandma we need to talk privately', 'Weekend plans'].join('\n');
-  const r = rig('we need to talk privately');
+  const text = ['Inbox - jdoe - Mail', 'Dr. Alice Nguyen re: biopsy results', 'Grandma please send the money now', 'Weekend plans'].join('\n');
+  const r = rig('please send the money now', true);
   await r.analyzer.analyze(frame(text), new AbortController().signal);
   assert.equal(r.bodies.length, 1);
   for (const secret of ['jdoe', 'Nguyen', 'biopsy', 'Weekend']) assert.ok(!r.bodies[0].includes(secret), secret);
-  assert.match(r.bodies[0], /talk privately/);
+  assert.match(r.bodies[0], /send the money now/);
 });
 
 test('flat text: the window stops at sentence ends and tab-strip separators', async () => {
   // Separate rigs: identical anchored excerpts would otherwise be a cache hit.
   const bodies: string[] = [];
-  for (const text of ['Dr. Alice Nguyen re: biopsy results. Grandma we need to talk privately. Weekend plans attached.',
-    'mail.example.com/u/0/inbox?session=Ab9 | Bank - Statements | Grandma we need to talk privately | Settings']) {
-    const r = rig('we need to talk privately');
+  for (const text of ['Dr. Alice Nguyen re: biopsy results. Grandma please send the money now. Weekend plans attached.',
+    'mail.example.com/u/0/inbox?session=Ab9 | Bank - Statements | Grandma please send the money now | Settings']) {
+    const r = rig('please send the money now', true);
     await r.analyzer.analyze(frame(text), new AbortController().signal);
     bodies.push(...r.bodies);
   }
@@ -73,16 +73,52 @@ test('a paraphrased or near-verbatim cue without a rules span does not dispatch'
   }
 });
 
-test('a verbatim quote is sent exactly, with no surrounding text', async () => {
-  const r = rig('we need to talk privately');
-  await r.analyzer.analyze(frame('Grandma we need to talk privately about the money'), new AbortController().signal);
+// the quote path is off by default; when on, it needs a pressure term.
+test('quote path off (default): no rules span means no dispatch, whatever the model quotes', async () => {
+  for (const [text, cue] of [[witness, 'Dr. Alice Nguyen re: biopsy results'], ['Grandma please send the gift card codes now, love Danny', 'please send the gift card codes now']]) {
+    // The second quote carries a pressure term: only the default-off switch stops it.
+    const r = rig(cue);
+    const result = await r.analyzer.analyze(frame(text), new AbortController().signal);
+    assert.equal(r.bodies.length, 0, cue);
+    assert.equal(result.trace.at(-1)?.failure_kind, 'no_anchor');
+  }
+});
+
+test('quote path on: a quote without a pressure term is not sent', async () => {
+  const r = rig('we need to talk privately', true);
+  await r.analyzer.analyze(frame('Grandma we need to talk privately about the weekend'), new AbortController().signal);
+  assert.equal(r.bodies.length, 0);
+});
+
+test('quote path on: a verbatim pressure quote is sent exactly and marked as a quote', async () => {
+  const r = rig('please send the gift card codes now', true);
+  const result = await r.analyzer.analyze(frame('Grandma please send the gift card codes now, love Danny'), new AbortController().signal);
   assert.equal(r.bodies.length, 1);
-  assert.match(r.bodies[0], /we need to talk privately/);
-  assert.ok(!r.bodies[0].includes('Grandma') && !r.bodies[0].includes('money'));
+  assert.match(r.bodies[0], /please send the gift card codes now/);
+  assert.ok(!r.bodies[0].includes('Grandma') && !r.bodies[0].includes('Danny'));
+  assert.equal(result.trace.at(-1)?.excerpt_source, 'quote');
+});
+
+test('the Mars fixture still dispatches through its investment_pressure span (excerpt_source rules)', async () => {
+  const mars = 'join the private pre-IPO\nround for Mars Colony One before it lists\npublicly. Only 200 founding allocations exist';
+  const r = rig('');
+  const result = await r.analyzer.analyze(frame(mars), new AbortController().signal);
+  assert.equal(r.bodies.length, 1);
+  assert.equal(result.trace.at(-1)?.excerpt_source, 'rules');
 });
 
 test('the screen head is never an excerpt, even for a long unanchored screen', async () => {
   const r = rig('');
   await r.analyzer.analyze(frame(`${witness}\n${'Quarterly statement line item\n'.repeat(40)}`), new AbortController().signal);
   assert.equal(r.bodies.length, 0);
+});
+
+test('the companion scope statement names model quotes only when the quote path is on', async () => {
+  const { startServer } = await import('../src/server/server.ts');
+  for (const quoteExcerpts of [false, true]) {
+    const runtime = await startServer({ port: 0, quoteExcerpts });
+    const script = await (await fetch(`${runtime.origin}/companion.js`)).text();
+    await runtime.close();
+    assert.equal(script.includes('a short phrase the local model quotes from the screen'), quoteExcerpts);
+  }
 });

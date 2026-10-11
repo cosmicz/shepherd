@@ -1,9 +1,9 @@
 // Family alert through Messages on the Mac running Shepherd. The
 // text is the fixed family template rendered from a closed pattern code and local
 // configuration; nothing from the page or a model is ever sent. Missing handle,
-// Messages or permission reports 'unavailable', never an error to the person.
+// Messages or permission reports 'unavailable'; the companion surfaces a fixed failure message.
 import type { Pattern } from '../domain/assessment.ts';
-import { familyText, type Persona } from '../domain/templates.ts';
+import { familyTestText, familyText, type Persona } from '../domain/templates.ts';
 import { runProcess, type ProcessRunner } from './process.ts';
 
 export type FamilyStatus = 'sent' | 'unavailable' | 'cooldown';
@@ -24,6 +24,22 @@ export class MessagesFamilyAlert {
 
   get configured(): boolean { return !!this.options.handle; }
 
+  // Configuration check: a fixed test message, no cooldown.
+  async test(): Promise<'sent' | 'unavailable'> {
+    if (!this.options.handle) return 'unavailable';
+    let text: string;
+    try { text = familyTestText(this.options.persona); } catch { return 'unavailable'; }
+    return this.send(text, this.options.handle);
+  }
+
+  private async send(text: string, handle: string): Promise<'sent' | 'unavailable'> {
+    try {
+      const execute = this.options.execute ?? runProcess;
+      await execute('/usr/bin/osascript', [...script.flatMap((line) => ['-e', line]), text, handle], Buffer.alloc(0), new AbortController().signal, 10_000, 4096);
+      return 'sent';
+    } catch { return 'unavailable'; }
+  }
+
   async notify(pattern: Pattern): Promise<FamilyStatus> {
     const { handle, persona } = this.options;
     if (!handle) return 'unavailable';
@@ -31,11 +47,8 @@ export class MessagesFamilyAlert {
     if (this.last !== undefined && now - this.last < (this.options.cooldown_ms ?? 5 * 60_000)) return 'cooldown';
     let text: string;
     try { text = familyText(pattern, persona, new Date(now), this.options.timeZone); } catch { return 'unavailable'; }
-    try {
-      const execute = this.options.execute ?? runProcess;
-      await execute('/usr/bin/osascript', [...script.flatMap((line) => ['-e', line]), text, handle], Buffer.alloc(0), new AbortController().signal, 10_000, 4096);
-      this.last = now;
-      return 'sent';
-    } catch { return 'unavailable'; }
+    const status = await this.send(text, handle);
+    if (status === 'sent') this.last = now;
+    return status;
   }
 }

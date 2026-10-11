@@ -1,9 +1,11 @@
 import { findRules, type RuleOptions } from './rules.ts';
 
-// Contract v2. All three versions travel in every trace step.
-export const POLICY_VERSION = 2;
-export const PROMPT_VERSION = 1;
-export const SCHEMA_VERSION = 2;
+// Contract v2, v2.1 open category: other_concern reason,
+// row 12d, model prompts; prompt 3 states the shared 8-160 cue bound.
+// All three versions travel in every trace step.
+export const POLICY_VERSION = 3;
+export const PROMPT_VERSION = 3;
+export const SCHEMA_VERSION = 3;
 
 export const statuses = ['concern', 'no_signal', 'inconclusive', 'unavailable'] as const;
 export const sources = ['window', 'tab', 'example', 'native'] as const;
@@ -12,6 +14,8 @@ export const reasonCodes = [
   'investment_pressure', 'impersonation', 'remote_access', 'family_emergency', 'prize_claim',
   // Text addressed to an assistant or model; weak, never decisive.
   'ai_instruction',
+  // Suspicious but outside the named categories.
+  'other_concern',
 ] as const;
 export const patterns = [
   'tech_support', 'celebrity_investment', 'family_emergency', 'government_impersonation',
@@ -50,13 +54,16 @@ export interface TextFrame extends Envelope {
   // Set by the integration when text or url were cut to fit the wire limits; a
   // clean result on partial text is reported as inconclusive, not no_signal.
   truncated?: boolean;
+  // Native source completeness marker. URL text is never shortened: a too-long
+  // address becomes null, so lookalike rules cannot inspect a partial host.
+  url_status?: 'ok' | 'too_long' | 'absent';
 }
 export type Frame = PngFrame | TextFrame;
 
 export type Analyzer =
   | { id: 'local-ocr-rules'; kind: 'rules'; version: string }
   | { id: 'local-model'; kind: 'model'; model: string }
-  | { id: 'cloud-judge'; kind: 'model'; provider: 'anthropic'; model: string };
+  | { id: 'cloud-judge'; kind: 'model'; provider: 'anthropic' | 'openrouter'; model: string };
 export const analyzerIds = ['local-ocr-rules', 'local-model', 'cloud-judge'] as const;
 const analyzerRoute: Record<Analyzer['id'], Route> = { 'local-ocr-rules': 'local', 'local-model': 'local-model', 'cloud-judge': 'cloud' };
 export interface RouteStep {
@@ -71,6 +78,10 @@ export interface RouteStep {
   cost: { known: boolean; usd: number };
   cached: boolean;
   versions: { policy: number; prompt: number; schema: number };
+  // What formed the cloud excerpt: rule-matched spans, or a verbatim model quote.
+  excerpt_source?: 'rules' | 'quote';
+  // Served from a rehearsal recording (demo safety net), never a live call.
+  replayed?: boolean;
 }
 export interface Assessment extends FrameContext {
   status: Status;
@@ -82,7 +93,7 @@ export interface Assessment extends FrameContext {
   route: Route;
   duration_ms: number;
   trace: RouteStep[];
-  // Routing outcome for fixed local templates (ztq): table row, cloud pattern and verdict.
+  // Routing outcome for fixed local templates: table row, cloud pattern and verdict.
   policy_row?: string;
   pattern?: Pattern;
   verdict?: 'scam' | 'suspicious' | 'benign' | 'unclear';
@@ -98,7 +109,7 @@ export interface EventSummary {
   duration_ms: number;
 }
 export const EVIDENCE_SPAN = 200;
-export const policyRows = ['1', '2', '3', '5', '6', '7', '9', '11', '12b', '12c', '13', '14', '15', '16', '17'] as const;
+export const policyRows = ['1', '2', '3', '5', '6', '7', '9', '11', '12b', '12c', '12d', '13', '14', '15', '16', '17'] as const;
 
 const messages: Record<Status, string> = {
   concern: 'This screen uses a pressure pattern. Pause and check who is asking before taking action.',
@@ -167,7 +178,7 @@ function parseAnalyzer(input: unknown): Analyzer {
   const value = record(input);
   if (value.id === 'local-ocr-rules' && value.kind === 'rules') return { id: 'local-ocr-rules', kind: 'rules', version: boundedString(value.version, 16) };
   if (value.id === 'local-model' && value.kind === 'model') return { id: 'local-model', kind: 'model', model: boundedString(value.model) };
-  if (value.id === 'cloud-judge' && value.kind === 'model' && value.provider === 'anthropic') return { id: 'cloud-judge', kind: 'model', provider: 'anthropic', model: boundedString(value.model) };
+  if (value.id === 'cloud-judge' && value.kind === 'model' && (value.provider === 'anthropic' || value.provider === 'openrouter')) return { id: 'cloud-judge', kind: 'model', provider: value.provider, model: boundedString(value.model) };
   throw Error('Unsupported analyzer');
 }
 
@@ -191,6 +202,14 @@ export function parseRouteStep(input: unknown): RouteStep {
     versions: { policy: count(versions.policy, 1000), prompt: count(versions.prompt, 1000), schema: count(versions.schema, 1000) },
   };
   if (settled) step.failure_kind = oneOf(value.failure_kind, failureKinds);
+  if (value.replayed !== undefined) {
+    if (value.replayed !== true || tier !== 'cloud' || step.remote_calls !== 0) throw Error('Invalid replay marker');
+    step.replayed = true;
+  }
+  if (value.excerpt_source !== undefined) {
+    if (tier !== 'cloud') throw Error('Only cloud steps carry an excerpt source');
+    step.excerpt_source = oneOf(value.excerpt_source, ['rules', 'quote'] as const);
+  }
   if (value.payload_sha256 !== undefined) {
     if (typeof value.payload_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.payload_sha256)) throw Error('Invalid payload hash');
     step.payload_sha256 = value.payload_sha256;
@@ -259,6 +278,8 @@ function coordinate(value: unknown): number {
 }
 export function parseTextFrame(input: unknown): TextFrame {
   const value = record(input);
+  const fields = new Set(['frame_id', 'source', 'session_id', 'generation', 'consent', 'text', 'lines', 'app', 'bundle_id', 'window_title', 'url', 'captured_at', 'scope', 'truncated', 'url_status']);
+  if (Object.keys(value).some((key) => !fields.has(key))) throw Error('Unknown TextFrame field');
   if (value.source !== 'native') throw Error('Text frames come from the native helper');
   // Empty text is valid (blank screen) and analyzes as inconclusive.
   if (typeof value.text !== 'string' || new TextEncoder().encode(value.text).length > MAX_TEXT) throw Error('Invalid frame text');
@@ -280,6 +301,11 @@ export function parseTextFrame(input: unknown): TextFrame {
   if (value.truncated !== undefined) {
     if (typeof value.truncated !== 'boolean') throw Error('Invalid truncated flag');
     frame.truncated = value.truncated;
+  }
+  if (value.url_status !== undefined) {
+    const status = oneOf(value.url_status, ['ok', 'too_long', 'absent'] as const);
+    if ((status === 'ok' && typeof frame.url !== 'string') || (status !== 'ok' && frame.url !== null)) throw Error('Inconsistent URL status');
+    frame.url_status = status;
   }
   if (value.lines !== undefined) {
     if (!Array.isArray(value.lines) || value.lines.length > MAX_LINES) throw Error('Invalid lines');

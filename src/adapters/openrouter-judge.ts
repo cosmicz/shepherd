@@ -1,4 +1,4 @@
-// Bridge from the gsg OpenRouter cloud judge (tools/cloud-judge) to CloudJudgePort.
+// Bridge from the OpenRouter cloud judge (tools/cloud-judge) to CloudJudgePort.
 // The adapter redacts, builds the exact body, re-checks the frame's grant and
 // accounts bytes and cost; this bridge only maps shapes.
 import { createHash } from 'node:crypto';
@@ -8,10 +8,11 @@ import type { CloudJudgeOutcome, CloudJudgePort, CloudJudgeRequest } from '../ap
 import { patterns, reasonCodes, type Frame, type Pattern, type Reason } from '../domain/assessment.ts';
 
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
-const failures = new Set(['timeout', 'unavailable', 'malformed', 'refusal', 'rate_limit', 'network']);
+// no_consent: the adapter's own grant re-check refused before dispatch.
+const failures = new Set(['timeout', 'unavailable', 'malformed', 'refusal', 'rate_limit', 'network', 'no_consent']);
 // The cloud tool's closed reason codes; newer runtime codes (ai_instruction) are
 // dropped from the request rather than failing its closed-code check.
-const toolReasons = new Set(['support_pressure', 'payment_pressure', 'credential_pressure', 'investment_pressure', 'impersonation', 'remote_access', 'family_emergency', 'prize_claim']);
+const toolReasons = new Set(['support_pressure', 'payment_pressure', 'credential_pressure', 'investment_pressure', 'impersonation', 'remote_access', 'family_emergency', 'prize_claim', 'other_concern']);
 const known = (request: CloudJudgeRequest): CloudJudgeRequest => ({
   ...request, rulesReasons: request.rulesReasons.filter((reason) => toolReasons.has(reason)), localReasons: request.localReasons.filter((reason) => toolReasons.has(reason)),
 });
@@ -44,6 +45,7 @@ export class OpenRouterJudge implements CloudJudgePort {
       };
     }
     const failure_kind = failures.has(result.failureKind) ? result.failureKind as Exclude<CloudJudgeOutcome, { ok: true }>['failure_kind'] : 'network';
-    return { ok: false, failure_kind, bytes_out: result.bytesOut, payload_sha256, cost: result.cost };
+    // The adapter reports whether the body was handed to the transport.
+    return { ok: false, failure_kind, bytes_out: result.bytesOut, payload_sha256, cost: result.cost, remote_calls: result.remoteCalls === 0 ? 0 : 1 };
   }
 }

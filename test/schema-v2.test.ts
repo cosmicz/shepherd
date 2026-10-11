@@ -6,7 +6,7 @@ import {
 } from '../src/domain/assessment.ts';
 import { decodeFrame } from '../src/server/frame.ts';
 
-// A response exactly as the rules-only runtime at 1d34e8a serialized it (no trace).
+// A response exactly as the rules-only runtime before model routing serialized it (no trace).
 const legacy = {
   frame_id: 'legacy-1', source: 'example', status: 'concern', reasons: ['support_pressure'],
   evidence: ['Your computer is infected. Call support immediately'],
@@ -23,11 +23,11 @@ const cloud = {
   trace: [rulesStep, { ...rulesStep, tier: 'local-model', analyzer_id: 'local-model', outcome: 'inconclusive' }, cloudStep],
 };
 
-test('versions are the contract v2 values', () => {
-  assert.deepEqual(versions, { policy: 2, prompt: 1, schema: 2 });
+test('versions are contract v2.1 values', () => {
+  assert.deepEqual(versions, { policy: 3, prompt: 3, schema: 3 });
 });
 
-test('a 1d34e8a rules-only response still parses unchanged, with an empty trace', () => {
+test('a legacy rules-only response still parses unchanged, with an empty trace', () => {
   const parsed = parseAssessment(structuredClone(legacy));
   assert.deepEqual({ ...parsed, trace: undefined }, { ...legacy, trace: undefined });
   assert.deepEqual(parsed.trace, []);

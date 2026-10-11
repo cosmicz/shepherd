@@ -32,14 +32,14 @@ test('probes local capability and sends a thinking-disabled closed-schema reques
     assert.equal(request.url, '/v1/chat/completions');
     const payload = JSON.parse(body);
     assert.deepEqual(payload.chat_template_kwargs, { enable_thinking: false });
-    assert.equal(payload.max_tokens, payload.messages[1].content === 'warm' ? 1 : 80);
+    assert.equal(payload.max_tokens, payload.messages[1].content === 'warm' ? 1 : 128);
     if (payload.messages[1].content === 'warm') assert.equal(payload.messages[0].content, '/no_think');
     else {
       assert.match(payload.messages[0].content, /untrusted page content/);
       assert.match(payload.messages[0].content, /JSON only/);
-      assert.equal(payload.max_tokens, 80);
+      assert.equal(payload.max_tokens, 128);
       assert.equal(payload.response_format.json_schema.strict, true);
-      assert.equal(payload.response_format.json_schema.schema.properties.cue.maxLength, 80);
+      assert.equal(payload.response_format.json_schema.schema.properties.cue.maxLength, 160);
       assert.equal(payload.response_format.json_schema.schema.properties.reasons.maxItems, 3);
     }
     respondJSON(response, { choices: [{ message: { content: JSON.stringify({ risk: 'high', reasons: ['support_pressure', 'support_pressure'], cue: 'call support now' }) } }] });
@@ -85,6 +85,30 @@ test('maps invalid outputs to malformed, including high risk with no reasons or 
   const result = await new LocalModelAdapter({ baseUrl: fixture.baseUrl }).analyze({ text: 'x' });
   assert.equal(result.failureKind, 'malformed');
   assert.equal(result.trace.remote_calls, 0);
+});
+
+test('v2.1 open category: other_concern needs a verbatim cue; unknown reasons are dropped', async (t) => {
+  const text = 'Please verify your account by uploading a photo of your passport to keep your parking spot.';
+  const replies = [
+    { risk: 'high', reasons: ['other_concern'], cue: 'uploading a photo of your passport' },
+    { risk: 'high', reasons: ['qr_parking_scam'], cue: 'uploading a photo of your passport' },
+    { risk: 'high', reasons: ['other_concern'], cue: 'a photo of your driving licence' },
+    { risk: 'high', reasons: ['qr_parking_scam'], cue: '' },
+    { risk: 'medium', reasons: ['payment_pressure', 'qr_parking_scam'], cue: '' },
+  ];
+  let index = 0;
+  const fixture = await fakeServer((_request, response, body) => {
+    assert.ok(JSON.parse(body).response_format.json_schema.schema.properties.reasons.items.enum.includes('other_concern'));
+    assert.match(JSON.parse(body).messages[0].content, /other_concern/);
+    respondJSON(response, { choices: [{ message: { content: JSON.stringify(replies[index++]) } }] });
+  });
+  t.after(() => fixture.close());
+  const adapter = new LocalModelAdapter({ baseUrl: fixture.baseUrl });
+  const results = [];
+  for (let i = 0; i < replies.length; i++) results.push(await adapter.analyze({ text }));
+  assert.deepEqual(results.map((r) => r.outcome === 'success' ? r.value.reasons : r.failureKind), [
+    ['other_concern'], ['other_concern'], 'malformed', 'malformed', ['payment_pressure'],
+  ]);
 });
 
 test('maps the local deadline to timeout and preserves caller cancellation', async (t) => {

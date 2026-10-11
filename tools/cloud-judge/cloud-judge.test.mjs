@@ -31,7 +31,7 @@ const context = {
 };
 
 test('redacts every privacy fixture before the exact serialized body is sent', () => {
-  const excerpt = 'Inbox\thttps://suspicious.example/path?q=1234 or bank.example?token=1234 Email jane@example.com; call +1 (415) 555-0199; SSN 123-45-6789; visit 1234 Main Street.';
+  const excerpt = 'Inbox\thttps://suspicious.example/path?q=1234 or secure-login.de/account?token=abc123 micros0ft-help.support/fix?id=a1 bank-verify.ru/login paypal-help.shop/x?u=jdoe my.bank.me/statement Email jane@example.com; call +1 (415) 555-0199; SSN 123-45-6789; visit 1234 Main Street.';
   const body = buildCloudRequest({
     excerpt,
     rulesReasons: ['impersonation'],
@@ -43,17 +43,25 @@ test('redacts every privacy fixture before the exact serialized body is sent', (
   });
 
   assert.equal(redactExcerpt(excerpt).includes('suspicious.example'), false);
-  assert.equal(redactExcerpt(excerpt).includes('bank.example'), false);
-  assert.equal(redactExcerpt(excerpt).includes('token=1234'), false);
-  assert.equal(redactExcerpt('The computer is infected.Call support.').includes('<url>'), false);
+  for (const host of ['secure-login.de', 'micros0ft-help.support', 'bank-verify.ru', 'paypal-help.shop', 'my.bank.me']) assert.equal(redactExcerpt(excerpt).includes(host), false);
   assert.equal(body.text.includes('suspicious.example'), false);
   assert.match(body.text, /<url>/);
-  for (const secret of ['jane@example.com', '415', '555', '0199', '1234', 'Main Street', '\thttps://', 'bank.example', 'token=']) {
+  for (const secret of ['jane@example.com', '415', '555', '0199', '1234', 'Main Street', '\thttps://', 'secure-login.de', 'token=', 'id=', 'u=']) {
     assert.equal(body.text.includes(secret), false, `serialized body leaked ${secret}`);
   }
   assert.equal(body.bytesOut, Buffer.byteLength(body.text));
   assert.equal(body.value.response_format.json_schema.strict, true);
   assert.equal(body.value.usage.include, true);
+});
+
+test('redacts a bare host with port, path, and query as one URL token', () => {
+  const hostWithPort = 'bank-verify.ru:8443/login?u=jdoe';
+  assert.equal(redactExcerpt(hostWithPort), '<url>');
+  const built = buildCloudRequest({
+    excerpt: hostWithPort, rulesReasons: [], localRisk: 'low', localReasons: [],
+    source: 'window', patternHints: [], model: 'm',
+  });
+  for (const secret of ['bank-verify.ru', '8443', '/login', 'u=jdoe']) assert.equal(built.text.includes(secret), false, `serialized body leaked ${secret}`);
 });
 
 test('parses only the closed cloud verdict schema', () => {
@@ -65,8 +73,11 @@ test('parses only the closed cloud verdict schema', () => {
   });
   assert.equal(valid.verdict, 'suspicious');
 
+  // v2.1: an unknown reason string is dropped, not a rejection; other_concern is closed.
+  assert.deepEqual(parseVerdict({ verdict: 'scam', reasons: ['invented', 'payment_pressure'], pattern: 'tech_support', rationale: 'x' }).reasons, ['payment_pressure']);
+  assert.deepEqual(parseVerdict({ verdict: 'suspicious', reasons: ['other_concern'], pattern: 'other', rationale: 'x' }).reasons, ['other_concern']);
   assert.throws(
-    () => parseVerdict({ verdict: 'scam', reasons: ['invented'], pattern: 'tech_support', rationale: 'x' }),
+    () => parseVerdict({ verdict: 'scam', reasons: [7], pattern: 'tech_support', rationale: 'x' }),
     /malformed/,
   );
   const overlong = parseVerdict({ verdict: 'benign', reasons: [], pattern: 'other', rationale: 'x'.repeat(301) });
@@ -107,15 +118,13 @@ test('dispatch validates grant, accounts exact bytes, and uses only the fake tra
   assert.equal(result.bytesOut, Buffer.byteLength(result.body));
 });
 
-test('dispatch rejects invalid grants and preserves caller cancellation', async () => {
-  await assert.rejects(
-    dispatchCloudJudge({
-      context: { ...context, frame: { ...context.frame, consent: { ...grant, generation: 6 } } },
-      request: { excerpt: 'x', rulesReasons: [], localRisk: 'low', localReasons: [], source: 'window', patternHints: [], model: 'm' },
-      transport: async () => { throw new Error('must not call'); },
-    }),
-    /no_consent/,
-  );
+test('dispatch reports invalid grants as an unattempted request and preserves caller cancellation', async () => {
+  const rejected = await dispatchCloudJudge({
+    context: { ...context, frame: { ...context.frame, consent: { ...grant, generation: 6 } } },
+    request: { excerpt: 'x', rulesReasons: [], localRisk: 'low', localReasons: [], source: 'window', patternHints: [], model: 'm' },
+    transport: async () => { throw new Error('must not call'); },
+  });
+  assert.deepEqual([rejected.remoteCalls, rejected.bytesOut, rejected.failureKind], [0, 0, 'no_consent']);
 
   const controller = new AbortController();
   controller.abort();
@@ -127,6 +136,17 @@ test('dispatch rejects invalid grants and preserves caller cancellation', async 
     }),
     AnalysisCancelled,
   );
+});
+
+test('a grant revoked immediately before dispatch has zero calls and bytes', async () => {
+  let calls = 0;
+  const result = await dispatchCloudJudge({
+    context: { ...context, now: new Date('2030-01-01T00:00:00.000Z') },
+    request: { excerpt: 'x', rulesReasons: [], localRisk: 'low', localReasons: [], source: 'window', patternHints: [], model: 'm' },
+    transport: async () => { calls += 1; return {}; },
+  });
+  assert.equal(calls, 0);
+  assert.deepEqual([result.remoteCalls, result.bytesOut, result.failureKind], [0, 0, 'no_consent']);
 });
 
 test('maps malformed model output to an inconclusive remote attempt', async () => {

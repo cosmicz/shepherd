@@ -11,7 +11,7 @@ const texts = {
   strong: 'Your computer is infected. Call support now.',
   weak: 'Your account will be suspended today. Please buy gift cards now and send the codes.',
   twoWeak: 'Your account will be suspended today. Please buy gift cards now and send the codes. Sign in at paypa1-billing.com',
-  none: 'Weekly garden club newsletter with tomato tips and a compost workshop on Saturday.',
+  none: 'Weekly garden club newsletter with tomato tips and a compost workshop on Saturday. Call the club office to reserve a seat.',
   inconclusive: '',
 };
 let sequence = 0;
@@ -37,7 +37,7 @@ function harness(plan: { local?: LocalPlan; cloud?: CloudPlan; provider?: boolea
       if (step === 'hang') return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
       if (step === 'unavailable' || step === 'malformed') return Promise.reject(new LocalModelError(step));
       if ('invalid' in step) return Promise.resolve(step.invalid);
-      return Promise.resolve({ risk: step.risk, reasons: step.reasons ?? (step.risk === 'low' ? [] : ['payment_pressure']), cue: 'compost workshop on Saturday' });
+      return Promise.resolve({ risk: step.risk, reasons: step.reasons ?? (step.risk === 'low' ? [] : ['payment_pressure']), cue: 'Call the club office to reserve a seat' });
     },
   };
   const cloud: CloudJudgePort = {
@@ -59,6 +59,8 @@ function harness(plan: { local?: LocalPlan; cloud?: CloudPlan; provider?: boolea
     local, cloud, consent, governor: plan.governor, now: () => NOW,
     onAttempt: (step) => calls.attempts.push(step),
     deadlines: { local_ms: 40, cloud_ms: 40, total_ms: 200 },
+    // These cases exercise routing rows 12-17 (no rules span), so the quote path is on.
+    quoteExcerpts: true,
   });
   return { analyzer, calls };
 }

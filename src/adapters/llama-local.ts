@@ -1,4 +1,4 @@
-// Bridge from the tea llama-server adapter (tools/local-model) to LocalModelPort.
+// Bridge from the llama-server adapter (tools/local-model) to LocalModelPort.
 import { LocalModelAdapter } from '../../tools/local-model/local-model.mjs';
 import { LocalModelError, type LocalModelPort } from '../application/routing.ts';
 

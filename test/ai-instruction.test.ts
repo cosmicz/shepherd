@@ -6,7 +6,7 @@ import { decide } from '../src/domain/policy.ts';
 
 const context = { frame_id: 'f', source: 'native' as const };
 
-// Text addressed to an assistant is a weak reason, so a page cannot
+// Contract: text addressed to an assistant is a weak reason, so a page cannot
 // steer the local model to a clean result without the model or cloud seeing it.
 test('assistant-directed instructions raise weak ai_instruction with the matched span', () => {
   for (const text of [

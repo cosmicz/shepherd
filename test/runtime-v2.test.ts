@@ -23,7 +23,7 @@ test('a native TextFrame is analyzed by the rules without OCR and carries a loca
   assert.equal(result.trace.length, 1);
   assert.deepEqual({ ...result.trace[0], duration_ms: 0 }, {
     tier: 'rules', analyzer_id: 'local-ocr-rules', outcome: 'concern', duration_ms: 0, remote_calls: 0, bytes_out: 0,
-    cost: { known: true, usd: 0 }, cached: false, versions: { policy: 2, prompt: 1, schema: 2 },
+    cost: { known: true, usd: 0 }, cached: false, versions: { policy: 3, prompt: 3, schema: 3 },
   });
 });
 

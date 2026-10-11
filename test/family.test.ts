@@ -107,3 +107,33 @@ test('family preference off sends nothing; no family name falls back to the caut
   await unnamed.session.start(async () => unnamed.capture);
   assert.deepEqual(unnamed.spoken, ['This page has signs of a tech support scam. Pause and check with someone you trust before doing anything.']);
 });
+
+// a test message on configuration, and failures surfaced to the companion.
+test('family test message: sent or unavailable, fixed text only, via the runtime endpoint', async (t) => {
+  const r = runner();
+  const ok = new MessagesFamilyAlert({ handle: 'x@example.com', persona, execute: r.execute });
+  assert.equal(await ok.test(), 'sent');
+  assert.match(r.calls[0].args.at(-2) as string, /^This is a test from Shepherd/);
+  assert.doesNotMatch(r.calls[0].args.at(-2) as string, /\d/);
+  const failing = new MessagesFamilyAlert({ handle: 'x@example.com', persona, execute: async () => { throw Error('denied'); } });
+  assert.equal(await failing.test(), 'unavailable');
+  assert.equal(await new MessagesFamilyAlert({ persona, execute: r.execute }).test(), 'unavailable');
+  const runtime = await startServer({ port: 0, family: ok });
+  t.after(() => runtime.close());
+  assert.equal(await new HttpFamilyAlert(runtime.origin).test(), 'sent');
+});
+
+test('a family alert that cannot be sent is surfaced to the session, never silently dropped', async () => {
+  const frame: Frame = { frame_id: 'frame-1', source: 'window', image: 'pixels' };
+  const capture: CaptureHandle = { source: 'window', frame: async () => frame, stop: () => {}, onEnded: () => {} };
+  const failures: string[] = [];
+  const session = new Session({
+    analyze: async () => analyzeText('Your computer is infected. Call support now.', { frame_id: 'frame-1', source: 'window' }),
+    append: () => {}, speak: () => {}, cancelSpeech: () => {}, onChange: () => {}, interval_ms: 0, persona: demoPersona,
+    notifyFamily: async () => 'unavailable', onFamilyResult: (status) => failures.push(status),
+  });
+  session.setPreferences(demoPersona.preferences);
+  await session.start(async () => capture);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(failures, ['unavailable']);
+});

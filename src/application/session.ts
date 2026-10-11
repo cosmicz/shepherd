@@ -1,5 +1,5 @@
 import { AnalysisCancelled } from './analyzer.ts';
-import { patternOf, speechKind, speechText, type Persona } from '../domain/templates.ts';
+import { familyAllowed, patternOf, speechKind, speechText, type Persona } from '../domain/templates.ts';
 import { makeUnavailable, parseAssessment, toEvent, type Assessment, type EventSummary, type Frame, type Pattern, type Source } from '../domain/assessment.ts';
 
 export interface CaptureHandle {
@@ -18,10 +18,13 @@ export interface SessionPorts {
   id?: () => string;
   interval_ms?: number;
   cooldown_ms?: number;
-  // Local configuration for fixed templates (ztq); never model or page text.
+  // Local configuration for fixed templates; never model or page text.
   persona?: Persona;
   // Family alert through the local runtime; receives a closed pattern code only.
   notifyFamily?: (pattern: Pattern) => Promise<unknown>;
+  // Delivery result of each family alert ('sent', 'cooldown', 'unavailable'), so
+  // the companion can say "family alert could not be sent".
+  onFamilyResult?: (status: string) => void;
 }
 export interface SessionState {
   phase: 'idle' | 'requesting' | 'active' | 'paused';
@@ -152,10 +155,13 @@ export class Session {
       try { this.ports.speak(text); }
       catch { this.current.error = 'Local speech is unavailable. Read the assessment on screen.'; this.changed(); }
     }
-    // Family alert: concerns only (rows 3, 7, 13, 14), under the same cooldown as
-    // speech; failures stay silent to the person.
-    if (this.active(generation) && this.preferences.family && kind && this.ports.notifyFamily) {
-      void this.ports.notifyFamily(patternOf(assessment)).catch(() => undefined);
+    // Family alert: corroborated concerns only (rows 3, 7, 13, 14; never 12d), under
+    // the same cooldown as speech; failures stay silent to the person but are
+    // reported to the companion, which says "family alert could not be sent".
+    if (this.active(generation) && this.preferences.family && familyAllowed(assessment) && this.ports.notifyFamily) {
+      void this.ports.notifyFamily(patternOf(assessment))
+        .then((status) => this.ports.onFamilyResult?.(typeof status === 'string' ? status : 'unavailable'))
+        .catch(() => this.ports.onFamilyResult?.('unavailable'));
     }
   }
 }

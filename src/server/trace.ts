@@ -5,11 +5,11 @@ import type { ServerResponse } from 'node:http';
 
 import type { Assessment, RouteStep } from '../domain/assessment.ts';
 
-export interface TraceCounters { cost_known_usd: number; cost_unknown_attempts: number; bytes_out: number; remote_calls: number; cached_hits: number }
+export interface TraceCounters { cost_known_usd: number; cost_unknown_attempts: number; bytes_out: number; remote_calls: number; cached_hits: number; replayed: number }
 
 export class TraceHub {
   private readonly clients = new Set<ServerResponse>();
-  readonly counters: TraceCounters = { cost_known_usd: 0, cost_unknown_attempts: 0, bytes_out: 0, remote_calls: 0, cached_hits: 0 };
+  readonly counters: TraceCounters = { cost_known_usd: 0, cost_unknown_attempts: 0, bytes_out: 0, remote_calls: 0, cached_hits: 0, replayed: 0 };
 
   subscribe(response: ServerResponse): void {
     response.writeHead(200, {
@@ -32,7 +32,9 @@ export class TraceHub {
   }
 
   recordAssessment(assessment: Assessment): void {
-    this.counters.cached_hits += assessment.trace.filter((step) => step.cached).length;
+    // Replays (demo safety net) are counted apart and never as cache hits.
+    this.counters.cached_hits += assessment.trace.filter((step) => step.cached && !step.replayed).length;
+    this.counters.replayed += assessment.trace.filter((step) => step.replayed).length;
     this.broadcast('event', {
       at: new Date().toISOString(), frame_id: assessment.frame_id, source: assessment.source, status: assessment.status,
       reasons: assessment.reasons, route: assessment.route, policy_row: assessment.policy_row ?? null,
@@ -56,7 +58,7 @@ export const tracePage = `<!doctype html><html lang="en"><head><meta charset="ut
 .concern{color:#b42318;font-weight:600}.muted{color:#667085}</style></head>
 <body><h1>Shepherd routing trace</h1><p class="muted">Counts and route steps only. No screen text, evidence or payloads appear here.</p>
 <div class="counters"><div><b id="remote_calls">0</b>cloud calls</div><div><b id="bytes_out">0</b>bytes to cloud</div>
-<div><b id="cost_known_usd">$0.000000</b>known cost</div><div><b id="cost_unknown_attempts">0</b>calls with unknown cost</div><div><b id="cached_hits">0</b>cache hits</div></div>
+<div><b id="cost_known_usd">$0.000000</b>known cost</div><div><b id="cost_unknown_attempts">0</b>calls with unknown cost</div><div><b id="cached_hits">0</b>cache hits</div><div><b id="replayed">0</b>replayed (rehearsal, not live)</div></div>
 <table><thead><tr><th>Time</th><th>Status</th><th>Route</th><th>Row</th><th>Steps</th></tr></thead><tbody id="events"></tbody></table>
 <script src="/trace.js"></script></body></html>`;
 
@@ -67,13 +69,13 @@ export const traceScript = `(async () => {
   source.addEventListener('counters', (e) => {
     const c = JSON.parse(e.data);
     text('remote_calls', c.remote_calls); text('bytes_out', c.bytes_out); text('cost_known_usd', '$' + c.cost_known_usd.toFixed(6));
-    text('cost_unknown_attempts', c.cost_unknown_attempts); text('cached_hits', c.cached_hits);
+    text('cost_unknown_attempts', c.cost_unknown_attempts); text('cached_hits', c.cached_hits); text('replayed', c.replayed);
   });
   source.addEventListener('event', (e) => {
     const v = JSON.parse(e.data);
     const row = document.createElement('tr');
     const cells = [new Date(v.at).toLocaleTimeString(), v.status, v.route, v.policy_row || '',
-      v.trace.map((s) => s.tier + ':' + s.outcome + (s.failure_kind ? '/' + s.failure_kind : '') + (s.remote_calls ? ' (' + s.bytes_out + ' B)' : '') + (s.cached ? ' cached' : '')).join(' → ')];
+      v.trace.map((s) => s.tier + ':' + s.outcome + (s.failure_kind ? '/' + s.failure_kind : '') + (s.remote_calls ? ' (' + s.bytes_out + ' B)' : '') + (s.replayed ? ' REPLAYED' : s.cached ? ' cached' : '')).join(' → ')];
     for (const value of cells) { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); }
     if (v.status === 'concern') row.children[1].className = 'concern';
     document.getElementById('events').prepend(row);

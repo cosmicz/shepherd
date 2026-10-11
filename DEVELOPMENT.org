@@ -18,11 +18,37 @@ remote calls, bytes sent and cost. Cloud dispatch requires a grant bound to
 session, generation and source, validated immediately before the call.
 Speech and family text come from fixed templates keyed by closed codes.
 
+The cloud-judge provider identity is ~openrouter~ and retains the resolved
+upstream model identifier. Schema parsing accepts historic ~anthropic~ labels
+only for previously persisted payload compatibility; new assessments emit
+~openrouter~. Cloud evidence is redacted before serialization: an unattempted
+request records zero remote calls and zero bytes, while a dispatched request
+records its exact serialized UTF-8 byte count.
+
 Raw pixels, OCR text and URLs are transient. History is opt-in and keeps at
 most 100 generic summaries.
 
+[2026-10-11 Sun] Native-eyes source normalizes the Swift helper's JSONL into
+~TextFrame~ values through an injected process boundary. It never shortens a
+URL: oversized addresses become null with ~url_status: too_long~. Text is kept
+only through a complete UTF-8 line within 32 KiB and marked ~truncated~, so a
+clean partial reading remains inconclusive. The real helper remains
+operator-run from Terminal.app; tests use a fake child process only.
+
+[2026-10-11 Sun] The helper executable defaults to the documented repository
+build location and may be overridden by ~SHEPHERD_EYES_BIN~. Spawn errors,
+typed helper stderr and unexpected exits map to fixed local unavailable states;
+raw diagnostics and captured text never enter the companion or trace.
+
 
 * Validation
+The public snapshot uses fixed code with a version-bound eight-fixture receipt.
+Public documentation and test labels omit private workflow identifiers; receipt
+provenance explicitly marks redacted source identifiers. Larger local-model
+context, managed model lifecycle, threat-list tagging and expanded capture modes
+are not implied by this snapshot. Partial local-model input remains inconclusive
+when its otherwise-final result would be no_signal.
+
 ~npm run check~ runs the native tests, the tools suites, the TypeScript build
 and the Chromium boundary test. Real OS permissions, local-voice behaviour and
 live model calls are witnessed manually.

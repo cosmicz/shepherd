@@ -9,3 +9,4 @@ private/
 captures/
 .DS_Store
 eval/results-*.json
+demo/cloud-replay.json

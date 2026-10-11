@@ -115,6 +115,21 @@ function investmentPressure(text: string): RuleFinding | undefined {
   return undefined;
 }
 
+// Weak remote_access: a named remote-access tool together with an
+// instruction to install, open, allow or hand over its code. Legitimate support
+// installs exist, so it stays weak and needs the local model to corroborate.
+const remoteTool = /\b(?:any\s?desk|team\s?viewer(?:\s+quick\s?support)?|log\s?me\s?in(?:123)?|ultra\s?viewer|splashtop|connect\s?wise|screen\s?connect|quick\s?assist|rust\s?desk|supremo|screen\s+shar(?:e|ing))\b/i;
+const remoteInstruction = /\b(?:download|install|open|run|allow|give|enable|start|accept|go\s+to|enter|read\s+(?:me\s+)?the)\b/i;
+
+function remoteAccess(text: string): RuleFinding | undefined {
+  const instructions = matches(remoteInstruction, text);
+  for (const tool of matches(remoteTool, text)) {
+    const instruction = near(instructions, tool);
+    if (instruction) return { reason: 'remote_access', evidence: span(text, [instruction, tool]) };
+  }
+  return undefined;
+}
+
 // Weak ai_instruction: on-screen text addressed to an assistant or
 // model, so a page cannot steer the local model to a clean result unseen.
 const aiInstruction = new RegExp([
@@ -131,11 +146,23 @@ function aiInstructionFinding(text: string): RuleFinding | undefined {
   return found && { reason: 'ai_instruction', evidence: span(text, [found]) };
 }
 
-// Lookalike domains: confusable normalization compared with well-known brand
-// labels. A brand's own registrable label under any TLD is official. An
-// OCR-derived indicator, never authentication.
+// Lookalike domains. An OCR-derived indicator that
+// yields the weak reason impersonation only; it infers nothing about ownership
+// or authenticity, and a non-match says nothing about safety. Four bounded rules:
+// confusable/transposition/dropped-or-doubled-letter edits of a brand label; a
+// brand token beside a suspicious token on a non-hosting domain; a brand label
+// on a TLD outside its official set; and address-bar input only.
 const brands = new Set(['microsoft', 'apple', 'google', 'paypal', 'amazon', 'netflix', 'facebook', 'chase',
-  'wellsfargo', 'bankofamerica', 'coinbase', 'medicare', 'irs', 'usps']);
+  'wellsfargo', 'bankofamerica', 'coinbase', 'medicare', 'irs', 'ssa', 'usps']);
+// Official TLDs for the ten demo brands; other brands accept their label on any TLD.
+const officialTlds: Record<string, readonly string[]> = {
+  apple: ['com'], microsoft: ['com'], paypal: ['com'], chase: ['com'], wellsfargo: ['com'],
+  amazon: ['com', 'de', 'co.uk', 'ca', 'fr', 'it', 'es', 'co.jp', 'in', 'com.au', 'com.br', 'com.mx', 'nl', 'se'],
+  google: ['com', 'de', 'co.uk', 'ca', 'fr', 'it', 'es', 'co.jp', 'co.in', 'com.au', 'com.br', 'com.mx', 'nl', 'se'],
+  medicare: ['gov'], irs: ['gov'], ssa: ['gov'],
+};
+const suspiciousTokens = new Set(['support', 'verify', 'secure', 'login', 'billing', 'account', 'help', 'gift', 'update', 'security', 'id', 'alert', 'recovery']);
+const hostingDomains = new Set(['github.io', 'github.com', 'wordpress.com', 'medium.com', 'reddit.com', 'youtube.com', 'linkedin.com']);
 const unicodeConfusables: Record<string, string> = {
   'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x', 'і': 'i', 'ј': 'j', 'ѕ': 's', 'ԁ': 'd', 'ɡ': 'g',
   'ο': 'o', 'α': 'a', 'ν': 'v', 'ρ': 'p', 'ι': 'i', 'κ': 'k',
@@ -143,53 +170,62 @@ const unicodeConfusables: Record<string, string> = {
 
 export function normalizeConfusables(value: string): string {
   return [...value.normalize('NFKC').toLowerCase()].map((char) => unicodeConfusables[char] ?? char).join('')
-    .replace(/0/g, 'o').replace(/1/g, 'l').replace(/5/g, 's').replace(/rn/g, 'm').replace(/vv/g, 'w');
+    .replace(/0/g, 'o').replace(/1/g, 'l').replace(/5/g, 's').replace(/rn/g, 'm').replace(/vv/g, 'w').replace(/cl/g, 'd');
 }
 
-const hostPattern = /(?<![\p{L}\p{N}@.-])(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?\.)+\p{L}{2,24}(?![\p{L}\p{N}-])/gu;
 // Two-level public suffixes, so google.co.uk and amazon.com.au resolve to their brand label.
 const secondLevel = new Set(['co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'com.au', 'net.au', 'org.au', 'co.nz', 'co.jp', 'co.in', 'com.br', 'com.mx', 'co.za', 'com.sg', 'com.hk']);
-function registrable(host: string): { domain: string; label: string } {
+function registrable(host: string): { domain: string; label: string; suffix: string } {
   const labels = host.split('.');
-  const suffix = labels.length > 2 && secondLevel.has(labels.slice(-2).join('.')) ? 3 : 2;
-  const parts = labels.slice(-suffix);
-  return { domain: parts.join('.'), label: parts[0] };
+  const size = labels.length > 2 && secondLevel.has(labels.slice(-2).join('.')) ? 3 : 2;
+  const parts = labels.slice(-size);
+  return { domain: parts.join('.'), label: parts[0], suffix: parts.slice(1).join('.') };
 }
 
-function distance(a: string, b: string): number {
-  if (Math.abs(a.length - b.length) > 1) return 2;
-  let previous = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    const row = [i];
-    for (let j = 1; j <= b.length; j++) row[j] = Math.min(previous[j] + 1, row[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    previous = row;
+// A typo-squat edit of a brand: adjacent transposition, one dropped letter, or one
+// doubled letter. Arbitrary substitutions (phase/chase, goggle/google) do not count.
+function typoOf(label: string, brand: string): boolean {
+  if (label === brand) return false;
+  if (label.length === brand.length) {
+    const diff = [...label].map((char, index) => char !== brand[index] ? index : -1).filter((index) => index >= 0);
+    return diff.length === 2 && diff[1] === diff[0] + 1 && label[diff[0]] === brand[diff[1]] && label[diff[1]] === brand[diff[0]];
   }
-  return previous[b.length];
+  if (label.length === brand.length - 1) return [...brand].some((_char, index) => brand.slice(0, index) + brand.slice(index + 1) === label);
+  if (label.length === brand.length + 1) return [...label].some((char, index) => index > 0 && char === label[index - 1] && label.slice(0, index) + label.slice(index + 1) === brand);
+  return false;
 }
 
-// This heuristic treats the brand's own registrable label under any TLD as
-// official. Flag only (a) a registrable label that is a confusable or one-edit
-// variant of a brand (brands of 5+ letters for the edit rule), or (b) a brand as
-// a separate hyphen or subdomain token on another registrable domain. Never a
-// substring match (pineapple, appleinsider, firstrepublic).
 function lookalike(host: string): boolean {
   const lower = host.toLowerCase();
-  const { label } = registrable(lower);
-  if (brands.has(label)) return false;
+  const { domain, label, suffix } = registrable(lower);
+  if (hostingDomains.has(domain)) return false;
+  // Official-TLD rule: the brand's own label on a TLD outside its official set.
+  if (brands.has(label)) return !!officialTlds[label] && !officialTlds[label].includes(suffix);
   const normalized = normalizeConfusables(label);
+  for (const brand of brands) {
+    // Edit rule: confusable spelling of the label itself, or a typo-squat edit.
+    if (normalized === brand || (brand.length >= 5 && typoOf(normalized, brand))) return true;
+  }
+  // Token rule: a brand token together with a suspicious token anywhere in the host.
   const tokens = lower.split(/[.-]/).map(normalizeConfusables);
-  return [...brands].some((brand) =>
-    normalized === brand
-    || (brand.length >= 5 && distance(normalized, brand) === 1)
-    || tokens.includes(brand));
+  return tokens.some((token) => brands.has(token)) && tokens.some((token) => suspiciousTokens.has(token));
+}
+
+// Address-bar input only: the url field, or for pixel frames the first OCR line
+// when that line is an address (a host, optionally with scheme and path).
+const addressLine = /^(?:https?:\/\/)?((?:[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?\.)+\p{L}{2,24})(?::\d+)?(?:[/?#]\S*)?$/u;
+function addressHosts(text: string, url: string | null | undefined): string[] {
+  if (url) {
+    try { return [new URL(url).hostname]; } catch { return []; }
+  }
+  const first = text.split('\n').map((line) => line.trim()).find(Boolean) ?? '';
+  const match = addressLine.exec(first.replace(/\s+/g, ''));
+  return match ? [match[1]] : [];
 }
 
 export function lookalikeHosts(text: string, options: RuleOptions = {}): string[] {
   const allowed = new Set((options.allowlist ?? []).map((host) => host.toLowerCase()));
-  let fromUrl: string | undefined;
-  try { fromUrl = options.url ? new URL(options.url).hostname : undefined; } catch { fromUrl = undefined; }
-  const hosts = [...new Set([...(fromUrl ? [fromUrl] : []), ...(text.match(hostPattern) ?? [])])];
-  return hosts.filter((host) => {
+  return addressHosts(text, options.url).filter((host) => {
     const lower = host.toLowerCase();
     if (allowed.has(lower) || allowed.has(registrable(lower).domain)) return false;
     return lookalike(lower);
@@ -208,6 +244,8 @@ export function findRules(text: string, options: RuleOptions = {}): RuleFinding[
   if (credential) findings.push(credential);
   const investment = investmentPressure(clauses);
   if (investment) findings.push(investment);
+  const remote = remoteAccess(clauses);
+  if (remote) findings.push(remote);
   const instruction = aiInstructionFinding(text);
   if (instruction) findings.push(instruction);
   const lookalikes = lookalikeHosts(text, options);
