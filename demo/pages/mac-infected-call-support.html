@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Shepherd demo fixture: SCAM (fake virus warning / tech-support call).
+     Generic, unbranded; the phone number is in the reserved 555-01xx range.
+     Wording intentionally trips the tier-0 support_pressure rule. Local only. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security Alert — System Protection Center</title>
+<style>
+  body { margin: 0; font: 18px/1.45 -apple-system, "Helvetica Neue", Arial, sans-serif; background: #0a3a8c; color: #fff; }
+  .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .box { width: 760px; background: #fff; color: #111; border-radius: 10px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+  .head { background: #c62828; color: #fff; padding: 16px 24px; font-size: 22px; font-weight: 700; }
+  .body { padding: 22px 28px; }
+  .body p { margin: 0 0 14px; }
+  .phone { font-size: 34px; font-weight: 800; color: #c62828; text-align: center; margin: 12px 0 18px; }
+  .code { font-family: Menlo, monospace; background: #f3f3f3; padding: 2px 6px; }
+  .btns { display: flex; gap: 12px; justify-content: flex-end; }
+  .btns span { padding: 10px 18px; border-radius: 6px; background: #e0e0e0; }
+  .btns span.go { background: #c62828; color: #fff; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="box">
+    <div class="head">System Protection Center — Critical Security Alert</div>
+    <div class="body">
+      <p><b>Your computer has been blocked.</b> Your computer is infected with 3 viruses.
+         Call Support immediately to unlock your computer.</p>
+      <p>The viruses are stealing your banking passwords, photos and email. A certified technician is waiting.</p>
+      <p>Error code: <span class="code">0x80073AFE-SEC</span>. Do not restart or close this window, or your
+         files may be permanently lost.</p>
+      <div class="phone">Toll free: 1-888-555-0143</div>
+      <div class="btns"><span>Cancel</span><span class="go">Call Support Now</span></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

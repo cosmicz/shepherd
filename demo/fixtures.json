@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 1280,
+    "height": 800,
+    "scale": 2
+  },
+  "port": 8099,
+  "note": "Single source of truth for the demo kit (server, capture, check). allowed_final is the contract for the routed system; rules is the tier-0 outcome check.mjs verifies on OCR of the PNG; target_rows is the intended path through the the contract v2 routing table, assuming a valid cloud grant, provider and budget (row 18 maps a missing grant to the no-consent row); target_route and cloud_call_allowed follow from it. Rows past tier 0 are targets that the measures, not observations.",
+  "pages": [
+    {
+      "id": "mars-colony-preipo",
+      "kind": "scam",
+      "host": "mail.localhost",
+      "story": "Celebrity-impersonation pre-IPO invitation by email: fictional founder, guaranteed 30x, private USDT settlement, 48-hour window, phone onboarding, secrecy.",
+      "allowed_final": [
+        "concern"
+      ],
+      "rules": {
+        "status": "no_signal",
+        "reasons": []
+      },
+      "target_rows": [
+        "12",
+        "13"
+      ],
+      "target_route": "cloud",
+      "cloud_call_allowed": true,
+      "why": "R no_signal; L expected medium or high (row 12); judge verdict scam (row 13). If L says low this is row 12c, a miss, which jl6 must report. Without a grant: row 12b, inconclusive."
+    },
+    {
+      "id": "mac-infected-call-support",
+      "kind": "scam",
+      "host": "security-alert.localhost",
+      "story": "Full-screen fake virus warning with a toll-free support number.",
+      "allowed_final": [
+        "concern"
+      ],
+      "rules": {
+        "status": "concern",
+        "reasons": [
+          "support_pressure"
+        ]
+      },
+      "target_rows": [
+        "3"
+      ],
+      "target_route": "local",
+      "cloud_call_allowed": false,
+      "why": "R concern with the strong reason support_pressure: infection claim and call-now instruction 51 characters apart, neither negated (row 3). No model, no cloud."
+    },
+    {
+      "id": "grandson-bail-giftcards",
+      "kind": "scam",
+      "host": "messages.localhost",
+      "story": "Text thread from a grandchild on a new number asking for bail in gift cards, secrecy, a lawyer about to call.",
+      "allowed_final": [
+        "concern"
+      ],
+      "rules": {
+        "status": "concern",
+        "reasons": [
+          "payment_pressure"
+        ]
+      },
+      "target_rows": [
+        "7"
+      ],
+      "target_route": "local-model",
+      "cloud_call_allowed": true,
+      "why": "R concern with one weak reason (payment_pressure); L expected high (row 7). If L says medium or low, rows 8/10 send it to the judge."
+    },
+    {
+      "id": "medicare-enrollment",
+      "kind": "hard_benign",
+      "host": "seniorcenter.localhost",
+      "story": "Legitimate Medicare open-enrollment guide that mentions deadlines, penalties, phone calls, Medicare numbers and gift cards only as protective advice.",
+      "allowed_final": [
+        "no_signal",
+        "inconclusive"
+      ],
+      "rules": {
+        "status": "no_signal",
+        "reasons": []
+      },
+      "target_rows": [
+        "12",
+        "15"
+      ],
+      "target_route": "cloud",
+      "cloud_call_allowed": true,
+      "why": "Scam vocabulary in protective framing may make L say medium (row 12); judge verdict benign keeps no_signal (row 15). L low gives row 12c, also acceptable. Never concern."
+    },
+    {
+      "id": "support-scam-advice",
+      "kind": "hard_benign",
+      "host": "consumer.localhost",
+      "story": "Newspaper consumer column on fake virus warnings that quotes the scam's words as advice, including the fyv v2 counterexample sentence 'if your computer says it is infected, do not call the number on the screen'.",
+      "allowed_final": [
+        "no_signal",
+        "inconclusive"
+      ],
+      "rules": {
+        "status": "no_signal",
+        "reasons": []
+      },
+      "target_rows": [
+        "12",
+        "15"
+      ],
+      "target_route": "cloud",
+      "cloud_call_allowed": true,
+      "why": "The strong support_pressure predicate must not match a negated call instruction. L may say medium on scam vocabulary (row 12); judge verdict benign keeps no_signal (row 15). Never concern."
+    },
+    {
+      "id": "weather",
+      "kind": "easy_benign",
+      "host": "weather.localhost",
+      "story": "Five-day San Francisco forecast.",
+      "allowed_final": [
+        "no_signal"
+      ],
+      "rules": {
+        "status": "no_signal",
+        "reasons": []
+      },
+      "target_rows": [
+        "12c"
+      ],
+      "target_route": "local-model",
+      "cloud_call_allowed": false,
+      "why": "R no_signal, L low (row 12c). Zero bytes leave the machine."
+    },
+    {
+      "id": "news",
+      "kind": "easy_benign",
+      "host": "news.localhost",
+      "story": "Local newspaper front page.",
+      "allowed_final": [
+        "no_signal"
+      ],
+      "rules": {
+        "status": "no_signal",
+        "reasons": []
+      },
+      "target_rows": [
+        "12c"
+      ],
+      "target_route": "local-model",
+      "cloud_call_allowed": false,
+      "why": "R no_signal, L low (row 12c). Zero bytes leave the machine."
+    }
+  ],
+  "policy_rows": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12",
+    "12b",
+    "12c",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "19"
+  ]
+}

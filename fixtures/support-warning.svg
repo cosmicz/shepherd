@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="260">
+  <rect width="1100" height="260" fill="white"/>
+  <g fill="black" font-family="Helvetica" font-size="38">
+    <text x="30" y="65">Your computer is infected.</text>
+    <text x="30" y="125">Call support immediately.</text>
+    <text x="30" y="185">Do not close this window.</text>
+  </g>
+</svg>

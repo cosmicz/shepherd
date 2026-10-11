@@ -1,0 +1,99 @@
+#+title: Shepherd — three-minute demo script
+#+date: [2026-10-11 Sun]
+
+by the team for the design; by the team. Beats follow
+the the Design, contract v2 (12:45). Numbers marked /estimate/ come from that Design and must
+be replaced by the measurements before they are spoken as results.
+Which tier decides each page (rules, local model, cloud) is a routing-policy
+/target/ (routing-table rows in demo/fixtures.json), not an observation; revise these beats to
+what the design and a rehearsal actually show before presenting.
+
+* Setup (before the clock starts)
+- ~node demo/serve.mjs~ (loopback only). Open the pages in one browser
+  window, one tab each, in beat order: weather, news, mail, security-alert,
+  seniorcenter, messages, consumer. Hosts are ~*.localhost:8099~; no hosts-file
+  edits.
+- Shepherd companion running with the demo persona (speech on, family alert to
+  the presenter's phone). Share the *whole browser window* so the address bar
+  is in frame. ~/trace~ open on a second display, counters at zero.
+- Cloud consent, granted live in the companion before the clock starts. The
+  demo persona does not pre-set it (fyv v2 Grant; the control belongs to
+  the design / the design). Click the grant and let the companion's own scope
+  statement stay on screen; read it aloud exactly as displayed. This script
+  deliberately does not restate the byte limit or redaction list, so the words
+  spoken can never drift from the grant actually given. Every new session or
+  source change starts with no grant. If the grant is not given, nothing is
+  dispatched; use the no-consent fallback below.
+- Sound up. Phone on the table, notifications on, face up.
+
+* 0:00–0:20 Hook
+"Many older adults read every email to the end. Scammers count on that. Shepherd
+sits next to their screen, notices when something is trying to rush them, and
+tells them in plain words, out loud. And it does that without sending the screen
+to anyone."
+
+* 0:20–0:45 Ordinary browsing, counters at zero
+Click through *weather* and *news*.
+- Point at ~/trace~: each frame resolves in the rules and local-model tiers.
+- "Bytes to cloud: zero. Cost: zero. This is what almost every minute of
+  their day looks like."
+
+* 0:45–1:30 Mars email escalates
+Open *mail* — the Mars Colony pre-IPO invitation.
+- The rules find nothing: no gift cards, no "call now", no password request.
+- The local model is unsure. Only now, under the cloud grant shown at setup,
+  does Shepherd ask the cloud judge, and only with a redacted text excerpt;
+  ~/trace~ shows the bytes that left.
+- The judge returns only closed codes (verdict and pattern, e.g. scam /
+  celebrity_investment). Shepherd speaks its own fixed local template for those
+  codes, and the phone buzzes with the fixed family template. No model-written
+  text is spoken or sent; the judge's rationale appears only in the details
+  view, labelled as model text.
+- "A celebrity, a guaranteed return, a private currency, a deadline and a
+  request for secrecy. No single keyword, but every part of the pattern."
+
+* 1:30–1:55 Support popup caught locally
+Switch to *security-alert* — the fake virus warning.
+- Concern in milliseconds from the rules tier; ~/trace~ shows no model call,
+  no cloud call.
+- "Obvious scams never cost a cent and never leave the machine."
+
+* 1:55–2:20 Medicare page: no concern raised
+Switch to *seniorcenter* — the genuine open-enrollment guide.
+- It mentions deadlines, penalties, Medicare numbers and gift cards — as
+  advice. Shepherd raises no concern. Show the result as it is: "no configured
+  concern found" (which is not a statement that the page is safe or genuine),
+  or, if inconclusive, show the uncertainty message rather than silence.
+- "A keyword filter would have scared them off the one page that helps them.
+  Shepherd found nothing to warn about here, and it says only that."
+
+* (optional, 15 s) Consumer-protection article
+Switch to *consumer*. A newspaper column quoting the scam's own words —
+"if your computer says it is infected, do not call the number on the screen" —
+raises no concern, because the rule only fires on an un-negated call-now
+instruction. Show it if a judge asks about false alarms.
+
+* (optional, 15 s, cut first if long) Grandson asks for bail
+Switch to *messages*. One rules signal; the local model is confident; no cloud.
+Use only if time allows; it shows the middle tier deciding alone.
+
+* 2:20–2:45 Counterfactual numbers
+Show the ~/trace~ totals, then the comparison slide or table from the design.
+- Cloud-only: a frame every 5 s for 8 h is 5,760 calls, about USD 46/day in
+  input alone, and every banking and email screen leaves the machine. /estimate/
+- Local-only: misses the Mars email; has no plain-language judgement. /to be measured/
+- Routed: under 2 % of frames reach the cloud, cents per day, no pixels
+  leave the machine. /estimate/
+
+* 2:45–3:00 Why one model is not enough
+"A model small enough to watch every frame for free isn't wise enough to catch
+the clever scam, and a model wise enough to catch it is too expensive and too
+invasive to watch every frame. Shepherd uses each one only where it is worth
+it."
+
+* Fallbacks
+- No ANTHROPIC_API_KEY or no cloud consent: the Mars beat ends inconclusive
+  with the local message; say so and show the trace. Do not fake a verdict.
+- llama-server down: trace shows the local-model tier unavailable; the support
+  popup beat still works on rules alone.
+- Live capture fails: use the PNGs in ~demo/screenshots/~ as labelled examples.
