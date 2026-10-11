@@ -6,7 +6,7 @@
     "scale": 2
   },
   "port": 8099,
-  "note": "Single source of truth for the demo kit (server, capture, check). allowed_final is the contract for the routed system; rules is the tier-0 outcome check.mjs verifies on OCR of the PNG; target_rows is the intended path through the the contract v2 routing table, assuming a valid cloud grant, provider and budget (row 18 maps a missing grant to the no-consent row); target_route and cloud_call_allowed follow from it. Rows past tier 0 are targets that the measures, not observations.",
+  "note": "Single source of truth for the demo kit (server, capture, check). allowed_final is the contract for the routed system; rules is the tier-0 outcome check.mjs verifies on OCR of the PNG; target_rows is the intended path through the contract v2 routing table, assuming a valid cloud grant, provider and budget (row 18 maps a missing grant to the no-consent row); target_route and cloud_call_allowed follow from it. Rows past tier 0 are targets for the evaluation runner, not observations.",
   "pages": [
     {
       "id": "mars-colony-preipo",
@@ -17,16 +17,18 @@
         "concern"
       ],
       "rules": {
-        "status": "no_signal",
-        "reasons": []
+        "status": "concern",
+        "reasons": [
+          "investment_pressure"
+        ]
       },
       "target_rows": [
-        "12",
+        "8",
         "13"
       ],
       "target_route": "cloud",
       "cloud_call_allowed": true,
-      "why": "R no_signal; L expected medium or high (row 12); judge verdict scam (row 13). If L says low this is row 12c, a miss, which jl6 must report. Without a grant: row 12b, inconclusive."
+      "why": "Weak investment_pressure (pre-IPO offer, 'before it lists publicly', 'Only 200 founding allocations' in one window) is not decisive; L expected medium (row 8) and the judge verdict scam (row 13) over the matched span only. L high would settle it locally (row 7). Without a grant: row 9, inconclusive."
     },
     {
       "id": "mac-infected-call-support",
@@ -95,7 +97,7 @@
       "id": "support-scam-advice",
       "kind": "hard_benign",
       "host": "consumer.localhost",
-      "story": "Newspaper consumer column on fake virus warnings that quotes the scam's words as advice, including the fyv v2 counterexample sentence 'if your computer says it is infected, do not call the number on the screen'.",
+      "story": "Newspaper consumer column on fake virus warnings that quotes the scam's words as advice, including the v2 counterexample sentence 'if your computer says it is infected, do not call the number on the screen'.",
       "allowed_final": [
         "no_signal",
         "inconclusive"

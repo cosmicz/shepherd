@@ -28,11 +28,11 @@ test('no reason means no evidence', () => {
   assert.deepEqual(analyzeText(`${head}Never pay with gift cards.`, context).evidence, []);
 });
 
-// the witness: OCR of UI text has no sentence punctuation, so a clause can
+// OCR of UI text has no sentence punctuation, so a clause can
 // be the whole screen. Evidence must still be a window around the trigger.
 const banking = Array.from({ length: 8 }, (_, i) => `Inbox ${i + 3} Weather Checking 44${i}7 balance 23${i}0 Savings 99${i}1 Transfers Statements`).join('\n');
 
-test('unpunctuated payment trigger yields a window around the match, not the screen head (g9c)', () => {
+test('unpunctuated payment trigger yields a window around the match, not the screen head', () => {
   assert.ok(banking.length > 512);
   const result = analyzeText(`${banking}\nYour account will be closed\nBuy gift cards now to prevent closing`, context);
   assert.deepEqual(result.reasons, ['payment_pressure']);
@@ -41,7 +41,7 @@ test('unpunctuated payment trigger yields a window around the match, not the scr
   assert.ok(result.evidence[0].length <= 200);
 });
 
-test('unpunctuated credential trigger yields a window around the match (g9c)', () => {
+test('unpunctuated credential trigger yields a window around the match', () => {
   const result = analyzeText(`${banking}\nSecurity notice\nEnter your password immediately to keep access`, context);
   assert.deepEqual(result.reasons, ['credential_pressure']);
   assert.match(result.evidence[0], /Enter your password immediately/);

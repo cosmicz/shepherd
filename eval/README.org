@@ -1,0 +1,42 @@
+#+title: Routing evaluation
+
+~eval/routing-eval.ts~ runs seven synthetic screenshots through three policies
+using the same Tesseract OCR text: local-only rules plus Qwen3, a naive
+cloud-only adapter, and the routed policy through the loopback server and
+~HttpAnalyzer~.
+
+#+begin_src sh
+llama-server -m /path/to/qwen3-8b-q4_k_m.gguf --host 127.0.0.1 --port 8080 -c 8192 --jinja
+node --import tsx eval/routing-eval.ts
+node --env-file=.env --import tsx eval/routing-eval.ts --live-cloud --cap 30
+#+end_src
+
+The default is cloud-dry-run, not entirely inference-free: local-only and
+routed policies can contact the existing local model. ~--live-cloud~ sends
+synthetic fixture text to OpenRouter and incurs API charges. Never substitute
+private screenshots in this harness. Running this evaluation was not part of
+the public snapshot's offline verification.
+
+* Historical fixture run
+Receipt: ~receipts/2026-10-11T1413-live.json~, recorded October 11, 2026.
+
+| policy     | missed | false alarms | abstentions | p50 ms | cloud calls | bytes out | known USD |
+|------------+--------+--------------+-------------+--------+-------------+-----------+-----------|
+| local-only |      0 |            0 |           1 |   1197 |           0 |         0 |         0 |
+| cloud-only |      0 |            0 |           0 |   2690 |           7 |     14321 |   0.05012 |
+| routed     |      0 |            0 |           0 |    989 |           1 |      1335 |  0.011275 |
+
+These are seven hand-authored fixtures and one run, not an accuracy benchmark
+or production cost forecast. The runner checks allowed final outcomes, not
+the manifest's target routing rows. The Mars fixture used the local-model
+row, not its intended cloud route.
+
+The cloud-only path calls the adapter directly; the routed path includes the
+HTTP boundary. Latencies exclude OCR and are not matched-boundary comparisons.
+The one routed cloud call used the model-quote excerpt path. Disabling that
+path changes behavior and requires a new measurement; this receipt must not be
+presented as evidence for that later policy.
+
+The raw receipt includes hypothetical per-day extrapolations. They repeat this
+small fixture mix and are not expected real-world spend. Model identity,
+provider behavior and outcomes must be rechecked for any new run.

@@ -69,7 +69,7 @@ const remote = (a: Assessment) => a.trace.reduce((sum, s) => sum + s.remote_call
 
 // One case per row: route, outcome, exact adapter calls, trace and side effects.
 const rows: Array<[string, Parameters<typeof harness>[0], string, { row: string; status: string; route: string; tiers: string[] }, { local: number; cloud: number; remote: number }]> = [
-  ['1 rules unavailable', { extractFails: true }, texts.none, { row: undefined as never, status: 'unavailable', route: 'local', tiers: ['rules:unavailable'] }, { local: 0, cloud: 0, remote: 0 }],
+  ['1 rules unavailable', { extractFails: true }, texts.none, { row: '1', status: 'unavailable', route: 'local', tiers: ['rules:unavailable'] }, { local: 0, cloud: 0, remote: 0 }],
   ['2 rules inconclusive', {}, texts.inconclusive, { row: '2', status: 'inconclusive', route: 'local', tiers: ['rules:inconclusive'] }, { local: 0, cloud: 0, remote: 0 }],
   ['3 strong concern', {}, texts.strong, { row: '3', status: 'concern', route: 'local', tiers: ['rules:concern'] }, { local: 0, cloud: 0, remote: 0 }],
   ['4 weak, local unavailable, gate open', { local: 'unavailable', cloud: { verdict: 'scam' } }, texts.weak, { row: '13', status: 'concern', route: 'cloud', tiers: ['rules:concern', 'local-model:failed/unavailable', 'cloud:concern'] }, { local: 1, cloud: 1, remote: 1 }],
@@ -93,9 +93,7 @@ for (const [name, plan, text, expected, counts] of rows) {
   test(`composite row ${name}`, async () => {
     const h = harness(plan);
     const result = parseAssessment(await run(h, frame(text)));
-    const got = shape(result);
-    if (expected.row === undefined) delete (got as { row?: string }).row;
-    assert.deepEqual(got, expected.row === undefined ? { status: expected.status, route: expected.route, tiers: expected.tiers } : expected);
+    assert.deepEqual(shape(result), expected);
     assert.deepEqual({ local: h.calls.local, cloud: h.calls.cloud, remote: remote(result) }, counts);
     assert.deepEqual(effects(result), { speak: expected.status === 'concern', family: expected.status === 'concern' });
     for (const step of result.trace) if (step.tier !== 'cloud') assert.deepEqual([step.remote_calls, step.bytes_out, step.cost], [0, 0, { known: true, usd: 0 }]);
@@ -190,7 +188,8 @@ test('repeated identical uncertain frames hit the cache; distinct ones stop at t
   assert.equal(same.calls.cloud, 1);
   const budget = harness({ local: { risk: 'medium' }, cloud: { verdict: 'unclear' }, governor: new CloudGovernor() });
   const results = [];
-  for (let i = 0; i < 10; i++) results.push(await run(budget, frame(`${texts.none} item ${i} ${'x'.repeat(i)}`)));
+  // Distinct excerpts: the variation sits inside the matched rules span.
+  for (let i = 0; i < 10; i++) results.push(await run(budget, frame(`Your account will be suspended today. Please buy ${i} gift cards now and send the codes.`)));
   assert.equal(budget.calls.cloud, 6);
   assert.deepEqual(shape(results[9]).tiers.at(-1), 'cloud:skipped/budget');
 });

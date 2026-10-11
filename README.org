@@ -1,18 +1,15 @@
-#+title: Shepherd — local runtime
+#+title: Shepherd — local screen companion
 #+date: [2026-10-11 Sun]
 
-Shepherd's base runtime analyzes a consented PNG frame on this computer using
-Tesseract OCR and narrow English pressure rules. It includes the session policy,
-HTTP analyzer client, loopback service and bounded browser-history adapter.
-The companion interface, native screen-capture adapter and local voice adapter
-are the next implementation milestone, the tracker. Opening the service
-currently displays JSON runtime status, not a working screen companion.
+Shepherd watches a screen surface you choose, looks for scam pressure, and
+offers a plain-language caution. It combines local OCR and rules, a local
+language model, and an optional cloud judge. This is an early review snapshot:
+it can miss threats or flag innocent content. No result authenticates a person,
+website or message.
 
-* Setup and checks
-Use Node 22.12 or newer, npm, and Tesseract with English language data on PATH.
-The native OCR integration test requires Tesseract; it fails if OCR is absent.
-The Chromium check requires Playwright's browser download. No inference model
-or provider key is needed for this milestone.
+* Run the companion
+Use Node 22.12 or newer, npm, and Tesseract with English language data.
+Playwright Chromium is needed for browser tests.
 
 #+begin_src sh
 npm ci
@@ -23,158 +20,110 @@ npm run check
 npm start
 #+end_src
 
-~npm run check~ runs the native tests, TypeScript typecheck/emitted build, and
-one Chromium runtime boundary check. ~npm start~ runs the built service at
-http://127.0.0.1:4317. Set ~SHEPHERD_PORT~ to select another local port. Use
-~npm run dev~ to build and start together; it does not enable a watch server.
-Stop the process with Ctrl-C. Only 127.0.0.1 is bound; use that address rather
-than localhost because the Host check is exact.
+Open ~http://127.0.0.1:4317/companion~ in Chrome. Start opens the browser's
+screen-sharing picker; the app analyzes the surface you select every five
+seconds, after the preceding analysis completes. Choose a window or tab for
+the demo. The browser may also offer a whole display; that includes everything
+visible on that display. Pause stops capture and revokes the cloud grant.
+Read aloud uses the browser's speech service; offline voice availability is
+not guaranteed.
 
-* Runtime interfaces
-| Interface | Contract |
-|-----------+----------|
-| GET / | JSON status; companion not yet implemented |
-| GET /api/session | Per-process token, same-origin access only |
-| GET /api/capabilities | ~{analyzers: [...]}~, one entry per analyzer (today: Tesseract + rules) |
-| POST /api/analyze | JSON Frame, exact Origin, X-Shepherd-Token; validated Assessment |
+~npm run dev~ builds and starts the service; it is not a file watcher.
+~SHEPHERD_PORT~ changes the default port. Only ~127.0.0.1~ is bound; use that
+address because the Host check is exact. ~/trace~ shows content-free route
+events, cloud-call counters and reported costs. The root URL returns status.
 
-A Frame is either a PNG frame or a text frame (schema v2, the tracker).
-A PNG frame has ~frame_id~, ~source~ (~window~, ~tab~ or ~example~) and ~image~
-(a PNG data URL); the server derives pixel dimensions from the PNG itself. A
-text frame comes from the native helper: ~source~ ~native~, ~text~ (at most
-32 KiB; empty for a blank screen), ~captured_at~, optional ~lines~ with
-geometry, and best-effort ~app~, ~bundle_id~, ~window_title~ and ~url~ (absent
-or null when unknown). Optional ~scope~ (~display~ or ~window~) is provenance:
-with ~display~ the text covers the whole screen and the app/window fields only
-describe the frontmost app. Text frames are analyzed by the rules without OCR;
-titles and URLs stay local and transient.
-Both may carry the session envelope ~session_id~ and ~generation~ and an
-optional consent ~Grant~ (scope ~redacted-text~, 2048 bytes, version 1). Decode
-validates the grant's shape; ~checkGrant(frame, now)~ must be called right
-before any cloud dispatch and returns ~no_consent~ unless the grant binds to
-this frame's session, generation and source and is unexpired. No cloud
-adapter exists yet.
-The browser session owns its generation counter and checks it after every
-await; HTTP results must match the submitted frame ID and source. A capture
-adapter must supply a fresh frame ID when it samples pixels.
+The tests use synthetic screenshots, fake transports and a fake browser picker.
+They do not establish real operating-system capture or Messages permissions.
 
-The response distinguishes ~concern~, ~no_signal~, ~inconclusive~ and
-~unavailable~. Analyzer metadata names the analyzer (~local-ocr-rules~ today;
-the schema also admits ~local-model~ and ~cloud-judge~) and the route must
-match it (~local~, ~local-model~, ~cloud~). Every assessment carries a ~trace~
-of at most three route steps with remote calls, bytes sent, payload hash, cost
-(known or unknown, never guessed) and policy/prompt/schema versions 2/1/2;
-local tiers always report zero bytes and zero cost. Pre-v2 payloads without a
-trace still parse. Media origin is always ~not_assessed~. Missing,
-failed or malformed analyzers never produce a fabricated example assessment.
-
-The public browser-safe exports are in ~src/index.ts~. Use ~Session~ with
-injected capture, analyzer, history, voice, clock and ID ports. ~HttpAnalyzer~
-connects only to a loopback Shepherd origin. A future UI must be served from
-the same origin; this service intentionally grants no CORS access to a separate
-development server. The service does not yet serve UI assets.
-
-* Synthetic OCR demonstration
-With ~npm start~ running in another terminal, this exercises the built client
-and actual service without requesting screen capture:
+* Models and optional family alerts
+The local tier expects llama-server on ~http://127.0.0.1:8080~. With existing
+Qwen3 8B GGUF weights, start it separately:
 
 #+begin_src sh
-node --input-type=module <<'JS'
-import { readFile } from 'node:fs/promises';
-import { HttpAnalyzer } from './dist/adapters/http-analyzer.js';
-const pixels = await readFile('fixtures/support-warning.png');
-const result = await new HttpAnalyzer('http://127.0.0.1:4317').analyze({
-  frame_id: 'synthetic-demo', source: 'example',
-  image: `data:image/png;base64,${pixels.toString('base64')}`,
-}, new AbortController().signal);
-console.log({ status: result.status, reasons: result.reasons, analyzer: result.analyzer });
-JS
+llama-server -m /path/to/qwen3-8b-q4_k_m.gguf --host 127.0.0.1 --port 8080 -c 8192 --jinja
 #+end_src
 
-The SVG and PNG under ~fixtures/~ are synthetic warning text, not private
-captures. The committed PNG avoids requiring an image tool during normal
-testing. To regenerate it with ImageMagick:
+~SHEPHERD_LLAMA_URL~ selects another loopback port. The adapter uses
+non-thinking, schema-constrained output. Risk labels are not calibrated
+probabilities. Without the service, the runtime reports the missing tier;
+narrow rules still operate.
+
+The cloud adapter uses OpenRouter. Put ~OPENROUTER_API_KEY~ in an untracked
+local ~.env~ file, then run:
 
 #+begin_src sh
-magick -background white fixtures/support-warning.svg fixtures/support-warning.png
+node --env-file=.env dist/server/main.js
 #+end_src
 
-* Consent, cancellation and retention
-Sessions start idle with history and automatic speech disabled. Calling
-~start~ requires the future UI's user action and a capture-picker port. Pause
-increments the generation, aborts analysis, stops the capture handle, clears
-the current assessment and cancels speech. Late picker results are stopped;
-late pixel and analysis results cannot publish. Source replacement waits for
-an old aborting analysis to settle so requests do not overlap. Sampling is
-one-frame by default; a positive ~interval_ms~ schedules only after completion.
+~SHEPHERD_CLOUD_MODEL~ overrides the configured model identifier. A key alone
+does not enable dispatch: the companion must register an explicit, unexpired
+grant for the current session generation and source. A new grant supersedes
+every earlier grant. Pause or source change requires consent again.
 
-The capture adapter owns all MediaStream tracks and preview/canvas clearing;
-its ~stop~ must release those resources. Its ~onEnded~ callback pauses the
-session. Actual OS permissions and track cleanup still need UI acceptance.
-The voice adapter must use a local voice and expose cancellation; this runtime
-does not claim actual voice availability or offline speech verification.
+~SHEPHERD_FAMILY_HANDLE~ optionally enables fixed-text Messages alerts.
+~SHEPHERD_PERSON~ and ~SHEPHERD_FAMILY_NAME~ set local names. The demo persona
+enables speech, summary history and family preferences, but never cloud
+consent; without a configured family handle, delivery is unavailable.
+Messages availability and recipient reachability require manual verification.
 
-~LocalHistory~ uses the injected browser Storage interface. It retains at most
-100 validated summaries under ~shepherd.history.v1~: generated ID, timestamp,
-status, generic reason codes, action, source kind, route and duration. It stores
-no pixels, OCR text, evidence, URLs or window titles. Disabling history stops
-future writes, including pending results; it leaves old summaries until the
-user clears them. ~clear~ removes the key. Storage failures leave the live
-assessment readable and report a separate history error. No server history,
-export, family notification or remote sharing exists in this milestone.
+* Capture and data boundaries
+The browser capture path sends the chosen image to the loopback service for
+Tesseract OCR. A separate macOS helper is documented in
+[[file:tools/shepherd-eyes/README.org][the native helper guide]]. It uses Vision OCR and defaults to the whole
+primary display, including adjacent windows from other apps. Its
+~--include-app~ option gates on the frontmost app; it does not hide other
+apps' pixels. ~--scope window~ limits that helper to the frontmost window.
+The helper is not automatically started by the companion in this snapshot.
 
-* Routing (contract v2, the tracker)
-~RoutedAnalyzer~ (~src/application/routing.ts~) runs the rules, then the local
-model (llama-server on loopback via ~tools/local-model~), then the cloud judge
-(~tools/cloud-judge~, OpenRouter to ~anthropic/claude-opus-5~), as decided by the
-pure ~decide()~ in ~src/domain/policy.ts~, which implements the the design
-routing table row by row. Only ~support_pressure~ is strong; every other reason
-needs the local model. Deadlines: text extraction 8 s, local model 4 s, cloud
-10 s, 16 s end to end; the server's request deadline is 20 s. Caller abort at any
-boundary throws ~AnalysisCancelled~: the server answers 204 with no body and the
-session discards it.
+Pixels and OCR text are transient in the application. Optional browser history
+keeps at most 100 generic summaries, not screenshots, OCR, evidence, titles or
+URLs. Full local evidence journaling and automatic expiry are not implemented.
 
-The cloud tier needs a live grant: the companion registers it with ~POST
-/api/consent~ and revokes it with ~DELETE /api/consent/<id>~ (process token and
-exact Origin). Revocation aborts any analysis carrying the grant, clears the
-verdict cache, and the id can never be registered again. Per session: at most
-6 cloud calls per 10 minutes and USD 0.50 known cost per day (unknown-cost
-calls count USD 0.02); identical excerpts within 10 minutes hit the cache.
+Cloud requests use bounded excerpts and pattern redaction, never screenshots.
+The current excerpt path can use a rule-matched span or a short verbatim quote
+selected by the local model. A valid quote can still contain private text:
+anchoring is not a privacy guarantee. See the limitations below before
+enabling cloud processing. On-screen content and model output are untrusted.
 
-~/trace~ is the judge-facing page: an SSE feed (~/trace/events~, token) of
-content-free event summaries with their route steps, every cloud attempt
-including aborted ones, and counters for cloud calls, bytes sent, known cost,
-unknown-cost calls and cache hits. It never carries screen text or evidence.
+* Interfaces and checks
+| Interface | Purpose |
+|-----------+---------|
+| GET /companion | Capture, explanation and consent controls |
+| GET /api/session | Same-origin process token |
+| GET /api/capabilities | Configured analyzer capabilities |
+| POST /api/analyze | Token/origin-checked PNG or native text frame |
+| POST /api/consent | Register one current cloud grant |
+| DELETE /api/consent/<id> | Revoke grant and pending associated work |
+| GET /trace | Content-free routing display |
 
-Run with the cloud tier: ~node --env-file=/path/to/.env dist/server/main.js~
-(~OPENROUTER_API_KEY~); without the key nothing leaves the machine.
+~npm run check~ runs root tests, tool suites, TypeScript checks/build and
+Chromium specs. ~node demo/check.mjs~ checks the seven synthetic fixtures with
+real Tesseract OCR. No paid inference or live screen capture is needed.
+See [[file:demo/README.org][the demo kit]] and [[file:eval/README.org][the evaluation guide]].
 
-* Limits and follow-up
-- Decoded PNGs are capped at 8 MiB, 5120 pixels per side and 10 million pixels
-  total; only PNG input is accepted. The request-body cap (about 10.7 MiB) is
-  derived from the image cap: a maximal base64 data URL plus a 64 KiB JSON
-  envelope. Base64 must be canonical (standard alphabet, exact padding, zero pad
-  bits) and is validated in linear time; the earlier grouped regex overflowed
-  the stack near 3.3 MiB. Browser-side downscaling for larger displays belongs
-  to the companion UI (the tracker).
-- One analysis request runs at a time; another receives 429. Subprocesses use
-  fixed argument arrays without a shell, an 8-second deadline, a 32 KiB output
-  cap and an allowlisted environment (~PATH~, ~OMP_THREAD_LIMIT~, and
-  ~TESSDATA_PREFIX~ if set), so provider credentials never reach OCR. Request
-  disconnect aborts OCR. Raw input and OCR diagnostics are not logged.
-- Assessment evidence is a window around the matches that satisfied each
-  reason (at most 200 characters, at most three), never the start of the screen
-  or of an unpunctuated OCR clause. It is transient and never stored in history.
-- Tesseract with ~--psm 6~ can interleave multi-column layouts; geometry-aware
-  regrouping is a recorded follow-up (F3), not addressed here.
-- The rules use English text, narrow pressure patterns and a lookalike-domain
-  check. They can miss scams and flag innocent text. No-signal is not an
-  authenticity judgment.
-- No generated-image detection. Routing benefit (missed concerns, false
-  alarms, cost) is measured on the tracker, not claimed here. The cloud
-  provider is recorded as ~anthropic~ with the OpenRouter model id; a schema
-  field for the routing provider (OpenRouter, Jev/Clef) is a follow-up.
-- Dependencies and browser binaries download during setup. Runtime analysis
-  uses the local process; process-level offline verification is still pending.
-- The Chromium check covers local HTTP access and blocked cross-origin token
-  reads. It is not an end-to-end companion or accessibility acceptance test.
+PNG input is limited to 8 MiB decoded, 5120 pixels per side and 10 million
+pixels total. The request-body limit accounts for base64 expansion.
+Native text input is limited to 32 KiB. One analysis runs at a time.
+Cloud usage has session limits and a bounded cache; unknown cost remains
+unknown rather than being reported as free.
+
+* Known limitations in this snapshot
+- A local-model quote can select unrelated sensitive text. Bare URLs with
+  some domain suffixes can evade redaction. Use synthetic or non-sensitive
+  pages while exercising cloud processing.
+- The local adapter marks truncated input, but the composite does not yet
+  preserve that flag. A low result can miss evidence beyond the local cap.
+- Standalone adapter accounting/deadline edge cases remain under repair.
+  Cloud analyzer metadata names the downstream provider rather than the
+  OpenRouter routing service.
+- Lookalike-domain heuristics can overflag benign names and miss others.
+  The reason vocabulary is closed; a general unclassified-concern path is
+  not implemented. Only the narrow support-pressure rule settles a concern
+  without model confirmation.
+- Family delivery failures are not consistently surfaced. Grant expiry and
+  renewal controls are basic.
+- Tesseract can interleave multi-column text. Accessibility-tree extraction,
+  generated-media detection and local evidence journaling are not included.
+- Fixture measurements are small, historical samples, not guarantees of
+  accuracy, privacy, availability or production economics.

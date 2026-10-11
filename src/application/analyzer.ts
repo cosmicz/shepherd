@@ -14,6 +14,11 @@ export class AnalysisCancelled extends Error {
   constructor() { super('Analysis cancelled'); this.name = 'AnalysisCancelled'; }
 }
 
+// The client's own deadline expired: a typed failure, never a raw AbortError.
+export class AnalysisTimeout extends Error {
+  constructor() { super('Analysis timed out'); this.name = 'AnalysisTimeout'; }
+}
+
 export interface AnalyzerPort {
   analyze(frame: Frame, signal: AbortSignal): Promise<Assessment>;
   // One entry per analyzer behind this port; a composite reports every tier.

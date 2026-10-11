@@ -9,6 +9,12 @@ import { patterns, reasonCodes, type Frame, type Pattern, type Reason } from '..
 
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 const failures = new Set(['timeout', 'unavailable', 'malformed', 'refusal', 'rate_limit', 'network']);
+// The cloud tool's closed reason codes; newer runtime codes (ai_instruction) are
+// dropped from the request rather than failing its closed-code check.
+const toolReasons = new Set(['support_pressure', 'payment_pressure', 'credential_pressure', 'investment_pressure', 'impersonation', 'remote_access', 'family_emergency', 'prize_claim']);
+const known = (request: CloudJudgeRequest): CloudJudgeRequest => ({
+  ...request, rulesReasons: request.rulesReasons.filter((reason) => toolReasons.has(reason)), localReasons: request.localReasons.filter((reason) => toolReasons.has(reason)),
+});
 
 export class OpenRouterJudge implements CloudJudgePort {
   constructor(private readonly options: { model: string; transport?: Transport; timeoutMs?: number }) {}
@@ -18,7 +24,7 @@ export class OpenRouterJudge implements CloudJudgePort {
   redact(excerpt: string): string { return redactExcerpt(excerpt); }
 
   measure(request: CloudJudgeRequest) {
-    const built = buildCloudRequest({ ...request, model: this.model });
+    const built = buildCloudRequest({ ...known(request), model: this.model });
     return { bytes_out: built.bytesOut, payload_sha256: sha256(built.text) };
   }
 
@@ -26,7 +32,7 @@ export class OpenRouterJudge implements CloudJudgePort {
     if (!this.options.transport) throw Error('Cloud judge unavailable');
     const result = await dispatchCloudJudge({
       context: { signal, frame, now: new Date(), providerReachable: true, inFlight: 0, budgetAvailable: true },
-      request: { ...request, model: this.model }, transport: this.options.transport, timeoutMs: this.options.timeoutMs,
+      request: { ...known(request), model: this.model }, transport: this.options.transport, timeoutMs: this.options.timeoutMs,
     });
     const payload_sha256 = sha256(result.body);
     if (result.outcome === 'success') {

@@ -31,7 +31,7 @@ const context = {
 };
 
 test('redacts every privacy fixture before the exact serialized body is sent', () => {
-  const excerpt = 'Inbox\thttps://suspicious.example/path?q=1234 Email jane@example.com; call +1 (415) 555-0199; SSN 123-45-6789; visit 1234 Main Street.';
+  const excerpt = 'Inbox\thttps://suspicious.example/path?q=1234 or bank.example?token=1234 Email jane@example.com; call +1 (415) 555-0199; SSN 123-45-6789; visit 1234 Main Street.';
   const body = buildCloudRequest({
     excerpt,
     rulesReasons: ['impersonation'],
@@ -43,9 +43,12 @@ test('redacts every privacy fixture before the exact serialized body is sent', (
   });
 
   assert.equal(redactExcerpt(excerpt).includes('suspicious.example'), false);
+  assert.equal(redactExcerpt(excerpt).includes('bank.example'), false);
+  assert.equal(redactExcerpt(excerpt).includes('token=1234'), false);
+  assert.equal(redactExcerpt('The computer is infected.Call support.').includes('<url>'), false);
   assert.equal(body.text.includes('suspicious.example'), false);
   assert.match(body.text, /<url>/);
-  for (const secret of ['jane@example.com', '415', '555', '0199', '1234', 'Main Street', '\thttps://']) {
+  for (const secret of ['jane@example.com', '415', '555', '0199', '1234', 'Main Street', '\thttps://', 'bank.example', 'token=']) {
     assert.equal(body.text.includes(secret), false, `serialized body leaked ${secret}`);
   }
   assert.equal(body.bytesOut, Buffer.byteLength(body.text));
@@ -66,10 +69,9 @@ test('parses only the closed cloud verdict schema', () => {
     () => parseVerdict({ verdict: 'scam', reasons: ['invented'], pattern: 'tech_support', rationale: 'x' }),
     /malformed/,
   );
-  assert.throws(
-    () => parseVerdict({ verdict: 'scam', reasons: [], pattern: 'tech_support', rationale: 'x'.repeat(301) }),
-    /malformed/,
-  );
+  const overlong = parseVerdict({ verdict: 'benign', reasons: [], pattern: 'other', rationale: 'x'.repeat(301) });
+  assert.equal(overlong.verdict, 'benign');
+  assert.equal(overlong.rationale.length, 300);
 });
 
 test('dispatch validates grant, accounts exact bytes, and uses only the fake transport', async () => {
@@ -153,6 +155,7 @@ test('OpenRouter transport has the documented request shape with an injected fak
   await transport({ body: '{"model":"m"}' });
   assert.equal(captured.url, 'https://openrouter.ai/api/v1/chat/completions');
   assert.equal(captured.options.method, 'POST');
+  assert.equal(captured.options.redirect, 'error');
   assert.equal(captured.options.headers.Authorization, 'Bearer test-key');
   assert.equal(captured.options.headers['HTTP-Referer'], 'https://shepherd.local');
   assert.equal(captured.options.headers['X-Title'], 'Shepherd');

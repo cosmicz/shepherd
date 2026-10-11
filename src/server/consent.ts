@@ -22,6 +22,9 @@ export class GrantRegistry implements ConsentPort {
     if (this.revoked.has(grant.id)) throw new GrantError(409);
     const existing = this.grants.get(grant.id);
     if (existing && !isDeepStrictEqual(existing, grant)) throw new GrantError(409);
+    // One live grant: any new registration revokes every other grant id, whatever
+    // its session, generation or source, so an old id can never be replayed.
+    for (const other of [...this.grants.values()]) if (other.id !== grant.id) this.revoke(other.id);
     this.grants.set(grant.id, grant);
     return grant;
   }

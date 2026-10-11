@@ -10,6 +10,8 @@ export const sources = ['window', 'tab', 'example', 'native'] as const;
 export const reasonCodes = [
   'support_pressure', 'payment_pressure', 'credential_pressure',
   'investment_pressure', 'impersonation', 'remote_access', 'family_emergency', 'prize_claim',
+  // Text addressed to an assistant or model; weak, never decisive.
+  'ai_instruction',
 ] as const;
 export const patterns = [
   'tech_support', 'celebrity_investment', 'family_emergency', 'government_impersonation',
@@ -37,7 +39,7 @@ export interface Grant {
 export interface Envelope { session_id?: string; generation?: number; consent?: Grant }
 export interface PngFrame extends FrameContext, Envelope { image: string }
 export interface TextLine { text: string; x: number; y: number; w: number; h: number }
-// Native helper output (u09/v4b). App, bundle, title and URL are best-effort and
+// Native helper output. App, bundle, title and URL are best-effort and
 // absent when unknown. scope says what the text covers: with 'display' the text
 // spans the whole screen and the app/window fields only describe the frontmost
 // app, so the text must not be attributed to that app alone.
@@ -193,6 +195,8 @@ export function parseRouteStep(input: unknown): RouteStep {
     if (typeof value.payload_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.payload_sha256)) throw Error('Invalid payload hash');
     step.payload_sha256 = value.payload_sha256;
   }
+  // A cloud attempt is at least one remote call; only a cache hit or a skip has none.
+  if (tier === 'cloud' && step.outcome !== 'skipped' && !step.cached && step.remote_calls < 1) throw Error('Uncached cloud step without a remote call');
   // Local tiers never leave the machine and are free.
   if (tier !== 'cloud' && (step.remote_calls !== 0 || step.bytes_out !== 0 || step.payload_sha256 !== undefined || !step.cost.known || step.cost.usd !== 0)) throw Error('Local tier reported remote traffic or cost');
   if (analyzerRoute[step.analyzer_id] !== ({ rules: 'local', 'local-model': 'local-model', cloud: 'cloud' } as const)[tier]) throw Error('Step analyzer does not match tier');
@@ -209,8 +213,11 @@ export function parseAssessment(input: unknown): Assessment {
   const trace = value.trace === undefined ? [] : value.trace;
   if (!Array.isArray(trace) || trace.length > 3) throw Error('Invalid trace');
   const steps = trace.map(parseRouteStep);
+  // Fixed tier order rules -> local-model -> cloud, each at most once.
+  const order = steps.map((step) => tiers.indexOf(step.tier));
+  if (order.some((rank, index) => index > 0 && rank <= order[index - 1])) throw Error('Trace tiers out of order or duplicated');
   // A model or cloud route must carry the step that decided it, so remote calls,
-  // bytes and cost cannot disappear from the record (the team F-TRACE).
+  // bytes and cost cannot disappear from the record.
   if (route === 'local-model' && !steps.some((step) => step.tier === 'local-model' && step.outcome !== 'skipped')) throw Error('Missing local-model step');
   if (route === 'cloud' && !steps.some((step) => step.tier === 'cloud' && step.outcome !== 'skipped')) throw Error('Missing cloud step');
   return {
@@ -254,7 +261,7 @@ export function parseTextFrame(input: unknown): TextFrame {
   const value = record(input);
   if (value.source !== 'native') throw Error('Text frames come from the native helper');
   // Empty text is valid (blank screen) and analyzes as inconclusive.
-  if (typeof value.text !== 'string' || Buffer.byteLength(value.text) > MAX_TEXT) throw Error('Invalid frame text');
+  if (typeof value.text !== 'string' || new TextEncoder().encode(value.text).length > MAX_TEXT) throw Error('Invalid frame text');
   const frame: TextFrame = {
     frame_id: boundedString(value.frame_id), source: 'native', ...parseEnvelope(value), text: value.text,
     captured_at: timestamp(value.captured_at),

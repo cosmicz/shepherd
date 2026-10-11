@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import { OcrAnalyzer } from '../../src/adapters/ocr.ts';
 
-// fyv v2: the lookalike rule must survive real OCR. A digit zero rendered in a
+// Policy v2: the lookalike rule must survive real OCR. A digit zero rendered in a
 // browser is read back by Tesseract as a letter O ("microsOft") and still flags.
 test('a rendered micros0ft lookalike is read back by OCR and flagged as impersonation', async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 260 });

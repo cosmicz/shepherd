@@ -1,4 +1,4 @@
-// Composite analyzer, the contract v2 (child btb): rules -> local model ->
+// Composite analyzer, contract v2: rules -> local model ->
 // cloud judge, driven by the pure policy in domain/policy.ts. Every tier runs
 // under AbortSignal.any([caller, deadline]); the caller's abort is checked first
 // and surfaces as AnalysisCancelled, which yields no Assessment at all.
@@ -15,6 +15,7 @@ import { AnalysisCancelled, type AnalyzerPort, type Capability } from './analyze
 export { AnalysisCancelled };
 
 export const DEADLINES = { extract_ms: 8000, local_ms: 4000, cloud_ms: 10_000, total_ms: 16_000 } as const;
+export const MAX_RULES_INPUT = 32 * 1024;
 
 // Tier 0 input: OCR for pixel frames, the helper's text for native frames.
 export interface TextExtractor { extract(frame: Frame, signal: AbortSignal): Promise<string> }
@@ -117,23 +118,20 @@ function within<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 
-const WINDOW_CHARS = 300;
+// Excerpt contract v3: only matched evidence spans
+// leave, never windows, neighbours, lines or fuzzy matches.
 const squash = (value: string) => value.replace(/\s+/g, ' ').trim();
-// The text around an anchor: on line-structured text (OCR, native helper) the
-// anchor's line and its immediate neighbours; otherwise 300 characters each side.
-function anchorWindow(text: string, anchor: string): string | undefined {
-  const needle = squash(anchor).toLowerCase();
-  if (!needle) return undefined;
-  const lines = text.split('\n');
-  const line = lines.findIndex((item) => squash(item).toLowerCase().includes(needle));
-  if (line >= 0) {
-    const around = squash(lines.slice(Math.max(0, line - 1), line + 2).join(' '));
-    const at = around.toLowerCase().indexOf(needle);
-    return around.slice(Math.max(0, at - WINDOW_CHARS), at + needle.length + WINDOW_CHARS);
-  }
+const MAX_QUOTE = 160;
+
+// The local model's quote counts only when it is a verbatim substring of the
+// frame text (after whitespace normalisation) of at most 160 characters; the
+// excerpt is then exactly that substring as it appears on the page.
+function verbatimQuote(text: string, quote: string | undefined): string | undefined {
+  const needle = squash(quote ?? '');
+  if (needle.length < 8 || needle.length > MAX_QUOTE) return undefined;
   const flat = squash(text);
-  const at = flat.toLowerCase().indexOf(needle);
-  return at < 0 ? undefined : flat.slice(Math.max(0, at - WINDOW_CHARS), at + needle.length + WINDOW_CHARS);
+  const at = flat.indexOf(needle);
+  return at < 0 ? undefined : flat.slice(at, at + needle.length);
 }
 
 function parseLocal(value: unknown): LocalModelResult {
@@ -189,9 +187,13 @@ export class RoutedAnalyzer implements AnalyzerPort {
     let text: string;
     const extraction = deadline(caller, this.limits.extract_ms);
     try { text = await within(this.options.extractor.extract(frame, extraction.signal), extraction.signal); }
-    catch { extraction.clear(); cancelled(); return { ...makeUnavailable(context), duration_ms: Math.round(elapsed()), trace: [{ tier: 'rules', analyzer_id: 'local-ocr-rules', outcome: 'unavailable', duration_ms: Math.round(elapsed()), remote_calls: 0, bytes_out: 0, cost: free, cached: false, versions }] }; }
+    catch { extraction.clear(); cancelled(); return { ...makeUnavailable(context), duration_ms: Math.round(elapsed()), policy_row: '1', trace: [{ tier: 'rules', analyzer_id: 'local-ocr-rules', outcome: 'unavailable', duration_ms: Math.round(elapsed()), remote_calls: 0, bytes_out: 0, cost: free, cached: false, versions }] }; }
     extraction.clear();
     cancelled();
+    // Rules are synchronous and not preempted; their bound is structural: input
+    // capped at 32 KiB here, backtracking-safe patterns, duration recorded.
+    let capped = false;
+    if (text.length > MAX_RULES_INPUT) { text = text.slice(0, MAX_RULES_INPUT); capped = true; }
     const rulesStarted = performance.now();
     const rules = analyzeText(text, context, 'text' in frame ? { url: frame.url } : {});
     trace.push({ tier: 'rules', analyzer_id: 'local-ocr-rules', outcome: rules.status, duration_ms: Math.round(performance.now() - rulesStarted), remote_calls: 0, bytes_out: 0, cost: free, cached: false, versions });
@@ -223,7 +225,7 @@ export class RoutedAnalyzer implements AnalyzerPort {
     let excerpt: string | undefined;
     if (decision.kind === 'call-cloud') {
       cancelled();
-      excerpt = this.excerpt(text, rules.evidence, localResult?.cue, this.options.cloud as CloudJudgePort);
+      excerpt = this.excerpt(text, rules, localResult?.cue, this.options.cloud as CloudJudgePort);
       decision = decide({ rules, local, gate: { ...this.gate(frame), anchor: excerpt !== undefined } });
     }
     if (decision.kind === 'call-cloud') {
@@ -272,7 +274,7 @@ export class RoutedAnalyzer implements AnalyzerPort {
     cancelled();
     if (decision.kind !== 'final') throw Error('Routing did not settle');
     if (decision.skipped) trace.push({ tier: 'cloud', analyzer_id: 'cloud-judge', outcome: 'skipped', failure_kind: decision.skipped, duration_ms: 0, remote_calls: 0, bytes_out: 0, cost: free, cached: false, versions });
-    return this.assessment(frame, decision, rules, localResult, judged, trace, Math.round(elapsed()));
+    return this.assessment(frame, decision, rules, localResult, judged, trace, Math.round(elapsed()), capped);
   }
 
   private gate(frame: Frame): Gate {
@@ -281,24 +283,23 @@ export class RoutedAnalyzer implements AnalyzerPort {
     return { grant, provider: !!this.options.cloud?.available(), budget: this.governor.allows(now) };
   }
 
-  // Anchored excerpt: windows around the rules' matched spans, else
-  // around the local model's cue found in the text; undefined when nothing
-  // anchors, and then nothing is sent. The screen head is never an excerpt.
-  // Redacted and capped at 2048 bytes.
-  private excerpt(text: string, evidence: string[], cue: string | undefined, port: CloudJudgePort): string | undefined {
-    const anchors = evidence.length ? evidence.flatMap((item) => item.split(' … ')) : cue && cue.trim().length >= 8 ? [cue.trim()] : [];
-    const windows = anchors.map((anchor) => anchorWindow(text, anchor)).filter((item): item is string => !!item);
-    if (!windows.length) return undefined;
-    let excerpt = port.redact(windows.join(' … '));
+  // Excerpt contract v3: the rules' matched spans (bounded at 200 chars, at most
+  // three; lookalike hosts contribute no text), else the verbatim model quote,
+  // else undefined and nothing is sent. Redacted and capped at 2048 bytes.
+  private excerpt(text: string, rules: Assessment, quote: string | undefined, port: CloudJudgePort): string | undefined {
+    const spans = rules.evidence.filter((_item, index) => rules.reasons[index] !== 'impersonation');
+    const parts = spans.length ? spans : [verbatimQuote(text, quote)].filter((item): item is string => !!item);
+    if (!parts.length) return undefined;
+    let excerpt = port.redact(parts.join(' … '));
     while (Buffer.byteLength(excerpt) > 2048) excerpt = excerpt.slice(0, Math.floor(excerpt.length * 0.9));
     return excerpt;
   }
 
   private assessment(frame: Frame, decision: Extract<Decision, { kind: 'final' }>, rules: Assessment, local: LocalModelResult | undefined,
-    judged: Extract<CloudJudgeOutcome, { ok: true }> | undefined, trace: RouteStep[], duration_ms: number): Assessment {
+    judged: Extract<CloudJudgeOutcome, { ok: true }> | undefined, trace: RouteStep[], duration_ms: number, capped = false): Assessment {
     let status: Status = decision.status;
-    // A clean result on truncated native text is not clean (the team).
-    if (status === 'no_signal' && 'text' in frame && frame.truncated) status = 'inconclusive';
+    // A clean result on truncated or capped text is not clean.
+    if (status === 'no_signal' && (capped || ('text' in frame && frame.truncated))) status = 'inconclusive';
     let reasons: Reason[] = [];
     if (status === 'concern') {
       reasons = [...new Set([...rules.reasons, ...(local?.reasons ?? []), ...(judged?.reasons ?? [])])];
