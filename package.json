@@ -1,0 +1,24 @@
+{
+  "name": "shepherd-local-companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && tsc -p tsconfig.build.json",
+    "start": "node dist/server/main.js",
+    "dev": "npm run build && npm start",
+    "test:browser": "playwright test",
+    "test:tools": "node --test tools/cloud-judge/*.test.mjs tools/local-model/*.test.mjs tools/shepherd-eyes/*.test.mjs && tsx --test tools/decision-models/*.test.ts",
+    "check": "npm test && npm run test:tools && npm run build && npm run test:browser"
+  },
+  "dependencies": { "tsx": "4.23.15" },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@types/node": "^22.0.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.4"
+  }
+}

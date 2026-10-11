@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Shepherd demo fixture: EASY BENIGN (weather forecast). Fictional site. Local only. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>San Francisco, CA — Bay Forecast</title>
+<style>
+  body { margin: 0; font: 17px/1.5 -apple-system, "Helvetica Neue", Arial, sans-serif; color: #102a43; background: #eaf3fb; }
+  header { background: #1f6fb2; color: #fff; padding: 16px 40px; font-size: 22px; font-weight: 700; }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 40px; }
+  .now { display: flex; gap: 40px; align-items: center; background: #fff; border-radius: 10px; padding: 20px 28px; }
+  .temp { font-size: 64px; font-weight: 300; }
+  .days { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 18px; }
+  .day { background: #fff; border-radius: 8px; padding: 12px; text-align: center; }
+  .day b { display: block; }
+</style>
+</head>
+<body>
+<header>Bay Forecast</header>
+<main>
+  <h1>San Francisco, CA</h1>
+  <div class="now">
+    <div class="temp">62°F</div>
+    <div><b>Morning fog, then sunny</b><br>Wind W 12 mph · Humidity 74%<br>Sunset 6:41 PM</div>
+  </div>
+  <div class="days">
+    <div class="day"><b>Mon</b>Fog early<br>64° / 54°</div>
+    <div class="day"><b>Tue</b>Sunny<br>67° / 55°</div>
+    <div class="day"><b>Wed</b>Partly cloudy<br>65° / 56°</div>
+    <div class="day"><b>Thu</b>Breezy<br>63° / 54°</div>
+    <div class="day"><b>Fri</b>Light rain<br>60° / 53°</div>
+  </div>
+  <p>Marine layer returns each evening along the coast. Inland valleys will be warmer, reaching the mid
+     seventies by Tuesday afternoon. Rain chances rise late in the week.</p>
+</main>
+</body>
+</html>

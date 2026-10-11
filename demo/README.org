@@ -1,0 +1,67 @@
+#+title: Shepherd demo kit
+#+date: [2026-10-11 Sun]
+
+Local scam and benign fixture pages, their 2x screenshots, expected outcomes and
+the demo script. All people, companies, numbers and sites are fictional except
+1-800-MEDICARE, the official Medicare line, used on the benign page. Nothing
+here makes a network request: every page carries ~default-src 'none'~ and the
+server listens on 127.0.0.1 only.
+
+| Page | Kind | Host | Tier-0 rules | Target rows (fyv v2) | Allowed final |
+|------+------+------+--------------+----------------------+---------------|
+| mars-colony-preipo | scam | mail.localhost | no_signal | 12 > 13 (cloud) | concern |
+| mac-infected-call-support | scam | security-alert.localhost | concern (support_pressure) | 3 (local) | concern |
+| grandson-bail-giftcards | scam | messages.localhost | concern (payment_pressure) | 7 (local-model) | concern |
+| medicare-enrollment | hard benign | seniorcenter.localhost | no_signal | 12 > 15 (cloud) | no_signal, inconclusive |
+| support-scam-advice | hard benign | consumer.localhost | no_signal | 12 > 15 (cloud) | no_signal, inconclusive |
+| weather | easy benign | weather.localhost | no_signal | 12c (local-model) | no_signal |
+| news | easy benign | news.localhost | no_signal | 12c (local-model) | no_signal |
+
+[[file:fixtures.json][fixtures.json]] is the single source of truth. /Tier-0 rules/ is verified by
+~check.mjs~. /Target rows/ name the intended path through the the design
+contract v2 routing table, assuming a valid grant, provider and budget; they
+are targets that the measures, not observations. ~check.mjs~ also checks
+the manifest itself: rows exist in the table, the route matches the final row,
+scams allow only concern and benign pages never allow it.
+
+* Commands
+#+begin_src sh
+node demo/serve.mjs              # http://127.0.0.1:8099/ and http://<host>:8099/
+node demo/capture.mjs [--port N] # rewrite demo/screenshots/*.png (2560x1600)
+node demo/check.mjs              # CSP/no-network grep + Tesseract OCR + runtime rules
+node demo/check.mjs --rules PATH # until src/domain/assessment.ts exists in this checkout
+#+end_src
+
+~capture.mjs~ uses ~SHEPHERD_CHROME~ or the newest Playwright
+~chromium_headless_shell~ in ~~/Library/Caches/ms-playwright~, with a throwaway
+profile, background networking off and every non-loopback name resolved to
+NOTFOUND. Screenshots frame the page under a simulated address bar showing the
+live demo host, because the live demo shares the whole browser window.
+~check.mjs~ runs Tesseract with the runtime adapter's arguments
+(~stdin stdout -l eng --psm 6~) and the runtime's own ~analyzeText~.
+
+The frame always shows the manifest port (8099), so ~--port~ changes only where
+capture listens, not the pixels. Capture fails fast if the port is taken. Each
+page renders to a fresh hidden sibling file that must be a new, valid PNG before
+it replaces the tracked screenshot, so a silent browser failure cannot leave
+stale pixels in place.
+
+* Third-party binaries and secrets
+~capture.mjs~ launches Chromium and ~check.mjs~ launches Tesseract, both
+installed third-party binaries. Each child gets an allowlisted environment
+(Chromium: ~HOME~ set to the throwaway profile, ~TMPDIR~, ~LANG~; Tesseract:
+~PATH~, ~LANG~ and ~TESSDATA_PREFIX~ only if set), so provider secrets such as
+~ANTHROPIC_API_KEY~ never reach them. Under the event rig's operator rule, post
+the intent on the bead and get the operator's go before running either.
+
+* Hosts
+Browsers and curl resolve ~*.localhost~ to loopback, so no hosts-file edit is
+needed. A lookalike domain for the support popup (for a future address-bar
+rule) would need a manual ~/etc/hosts~ entry; the kit never edits it.
+
+* Known limits
+- Tesseract does not read the address bar on the support-popup screenshot (the
+  full-page blue background) in the fcd3b1e capture; it reads it on the others. Relevant to any
+  address-bar lookalike rule.
+- Rules outcomes depend on OCR; a Tesseract upgrade can change them, which is
+  what ~check.mjs~ is for.

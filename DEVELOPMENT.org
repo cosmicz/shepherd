@@ -1,0 +1,28 @@
+#+title: Shepherd — application development
+#+date: [2026-10-11 Sun]
+
+This file holds durable architecture notes.
+
+* Architecture
+The domain defines assessments, closed reason and pattern codes, generic event
+summaries, route traces and explicit uncertainty. The application layer owns
+capture consent, generation-based cancellation and bounded sampling. Adapters
+supply browser capture, local OCR, the native helper's text frames, the local
+model, the cloud judge, local speech, the family alert and browser-local
+summary storage. A Node service binds to loopback and serves the companion,
+the analysis endpoint, the consent registry and the judge trace page.
+
+Routing is a pure policy over rules, local model and cloud judge outcomes with
+a total decision table; every tier records a trace step with duration,
+remote calls, bytes sent and cost. Cloud dispatch requires a grant bound to
+session, generation and source, validated immediately before the call.
+Speech and family text come from fixed templates keyed by closed codes.
+
+Raw pixels, OCR text and URLs are transient. History is opt-in and keeps at
+most 100 generic summaries.
+
+
+* Validation
+~npm run check~ runs the native tests, the tools suites, the TypeScript build
+and the Chromium boundary test. Real OS permissions, local-voice behaviour and
+live model calls are witnessed manually.
