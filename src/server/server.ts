@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { OcrAnalyzer } from '../adapters/ocr.ts';
 import { AnalysisCancelled, type AnalyzerPort } from '../application/analyzer.ts';
 import { makeUnavailable, parseAssessment, type Frame } from '../domain/assessment.ts';
-import { companionPage, companionScript } from './companion.ts';
+import { companionPage, companionScriptFor } from './companion.ts';
 import { GrantError, type GrantRegistry } from './consent.ts';
 import { decodeFrame, MAX_BODY_BYTES } from './frame.ts';
 import { tracePage, traceScript, type TraceHub } from './trace.ts';
@@ -73,7 +73,7 @@ function matchesToken(value: string | string[] | undefined, token: string): bool
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
-export async function startServer(options: { port?: number; analyzer?: AnalyzerPort; consent?: GrantRegistry; trace?: TraceHub; family?: MessagesFamilyAlert } = {}) {
+export async function startServer(options: { port?: number; analyzer?: AnalyzerPort; consent?: GrantRegistry; trace?: TraceHub; family?: MessagesFamilyAlert; quoteExcerpts?: boolean } = {}) {
   const analyzer = options.analyzer ?? new OcrAnalyzer();
   const { consent, trace, family } = options;
   const token = randomBytes(32).toString('hex');
@@ -148,6 +148,10 @@ export async function startServer(options: { port?: number; analyzer?: AnalyzerP
         consent.revoke(decodeURIComponent(request.url.slice('/api/consent/'.length)));
         response.writeHead(204, { 'Cache-Control': 'no-store' });
         response.end();
+      } else if (request.method === 'POST' && request.url === '/api/family-alert/test') {
+        if (!authorized(request)) throw new HttpError(403);
+        await readJson(request, 64);
+        send(response, 200, { status: family ? await family.test() : 'unavailable' });
       } else if (request.method === 'POST' && request.url === '/api/family-alert') {
         // Only a closed pattern code is accepted; the runtime renders the fixed
         // family template from local configuration.
@@ -159,7 +163,7 @@ export async function startServer(options: { port?: number; analyzer?: AnalyzerP
       } else if (request.method === 'GET' && request.url === '/companion') {
         sendText(response, 'text/html; charset=utf-8', companionPage, pagePolicy);
       } else if (request.method === 'GET' && request.url === '/companion.js') {
-        sendText(response, 'text/javascript; charset=utf-8', companionScript, "default-src 'none'");
+        sendText(response, 'text/javascript; charset=utf-8', companionScriptFor(!!options.quoteExcerpts), "default-src 'none'");
       } else if (request.method === 'GET' && browserModules.has(request.url ?? '')) {
         let body: string;
         try { body = await readFile(new URL((request.url as string).slice('/dist/'.length), DIST), 'utf8'); } catch { throw new HttpError(404); }

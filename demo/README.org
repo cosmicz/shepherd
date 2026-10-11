@@ -7,7 +7,7 @@ the demo script. All people, companies, numbers and sites are fictional except
 here makes a network request: every page carries ~default-src 'none'~ and the
 server listens on 127.0.0.1 only.
 
-| Page | Kind | Host | Tier-0 rules | Target rows (policy v2) | Allowed final |
+| Page | Kind | Host | Tier-0 rules | Target rows | Allowed final |
 |------+------+------+--------------+----------------------+---------------|
 | mars-colony-preipo | scam | mail.localhost | concern (investment_pressure, weak) | 8 > 13 (cloud) | concern |
 | mac-infected-call-support | scam | security-alert.localhost | concern (support_pressure) | 3 (local) | concern |
@@ -16,11 +16,12 @@ server listens on 127.0.0.1 only.
 | support-scam-advice | hard benign | consumer.localhost | no_signal | 12 > 15 (cloud) | no_signal, inconclusive |
 | weather | easy benign | weather.localhost | no_signal | 12c (local-model) | no_signal |
 | news | easy benign | news.localhost | no_signal | 12c (local-model) | no_signal |
+| bank-verify | scam | inbox.localhost | concern (credential_pressure, ai_instruction) | 10 > 13 (cloud) | concern |
 
 [[file:fixtures.json][fixtures.json]] is the single source of truth. /Tier-0 rules/ is verified by
 ~check.mjs~. /Target rows/ name the intended path through the
 contract v2 routing table, assuming a valid grant, provider and budget; they
-are targets for evaluation, not observations. ~check.mjs~ also checks
+are evaluation targets, not observations. ~check.mjs~ also checks
 the manifest itself: rows exist in the table, the route matches the final row,
 scams allow only concern and benign pages never allow it.
 
@@ -29,7 +30,6 @@ scams allow only concern and benign pages never allow it.
 node demo/serve.mjs              # http://127.0.0.1:8099/ and http://<host>:8099/
 node demo/capture.mjs [--port N] # rewrite demo/screenshots/*.png (2560x1600)
 node demo/check.mjs              # CSP/no-network grep + Tesseract OCR + runtime rules
-node demo/check.mjs --rules PATH # until src/domain/assessment.ts exists in this checkout
 #+end_src
 
 ~capture.mjs~ uses ~SHEPHERD_CHROME~ or the newest Playwright
@@ -51,8 +51,8 @@ stale pixels in place.
 installed third-party binaries. Each child gets an allowlisted environment
 (Chromium: ~HOME~ set to the throwaway profile, ~TMPDIR~, ~LANG~; Tesseract:
 ~PATH~, ~LANG~ and ~TESSDATA_PREFIX~ only if set), so provider secrets such as
-~OPENROUTER_API_KEY~ never reach them. These commands use synthetic fixtures;
-no live screen capture or remote inference is required.
+~OPENROUTER_API_KEY~ never reach them. Capture renders only the synthetic pages;
+it does not capture the user's desktop.
 
 * Hosts
 Browsers and curl resolve ~*.localhost~ to loopback, so no hosts-file edit is
@@ -61,7 +61,7 @@ rule) would need a manual ~/etc/hosts~ entry; the kit never edits it.
 
 * Known limits
 - Tesseract does not read the address bar on the support-popup screenshot (the
-  full-page blue background) in the committed fixture; it reads it on the others. Relevant to any
+  full-page blue background) in the checked-in capture; it reads it on the others. Relevant to any
   address-bar lookalike rule.
 - Rules outcomes depend on OCR; a Tesseract upgrade can change them, which is
   what ~check.mjs~ is for.

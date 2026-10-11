@@ -1,58 +1,82 @@
-#+title: Shepherd — three-minute demonstration
+#+title: Shepherd — three-minute demo script
 #+date: [2026-10-11 Sun]
 
-Use synthetic pages only. Show the actual result and trace: the deciding tier
-can change between runs. This is a demonstration, not a promise that a given
-page always follows a particular model path.
+This script uses the final eight-page measurements in [[file:../eval/README.org][eval/README.org]].
+Outcomes vary; narrate the trace actually shown. The runbook covers setup,
+consent, real-device checks and labelled replay. Do not claim unwitnessed speech
+or family-message delivery.
 
 * Setup
-- Start the runtime and ~node demo/serve.mjs~.
-- Open the seven local fixture pages in one browser window. Share that
-  window in the companion; keep ~/trace~ visible alongside it.
-- Start the local model separately if demonstrating model routing.
-- If demonstrating cloud review, configure an OpenRouter key and grant
-  consent visibly in the companion. A key alone is not consent.
-- Only configure a real family handle if the recipient agrees to the demo.
-  Otherwise leave family delivery unavailable and say so.
-- Check the actual behavior before recording. The operating-system picker,
-  speech voice and Messages permission are separate from automated tests.
+Open weather, news, mail, inbox, security-alert and seniorcenter in the shared
+synthetic-pages browser window. Keep companion and trace visible separately.
+Warm the local model in rehearsal. Grant cloud consent live and read the
+companion's exact scope statement. Record rehearsal cloud responses if a
+labelled replay fallback is needed.
 
-* 0:00–0:20: Problem and boundary
-“Scammers pressure people to act before they can check. Shepherd watches a
-surface you choose and offers a plain-language caution. OCR and the first
-model stay local; cloud review is optional and uses an excerpt, not a picture.”
+* 0:00–0:20 Hook
+“Scammers build trust, then rush someone into a payment or a dangerous action.
+Shepherd watches the screen surface you choose and offers a plain-language
+caution. Screenshots stay on the device; only selected, redacted text can go
+to a stronger model, with your permission.”
 
-* 0:20–0:45: Ordinary browsing
-Show weather and news. Point to the actual outcome and cloud counters.
-Do not describe a no-signal result as proof that a page is safe.
+* 0:20–0:40 Ordinary browsing
+Click weather and news. Point to local-model decisions and zero remote bytes.
+“These pages were checked locally. No cloud request was needed.”
+A no_signal result means no configured warning signs were found, not that a
+page has been authenticated or proved safe.
 
-* 0:45–1:30: Investment invitation
-Open the fictional Mars pre-IPO email. Show the reasons and which tier
-actually decided. A local high-risk result can settle this fixture without
-cloud review; do not claim a cloud escalation unless the trace shows one.
-If a cloud call occurs, show its byte count and consent state.
+* 0:40–1:15 Mars investment invitation
+Open mail. In the measured run, a weak investment-pressure rule and the local
+model's high-risk result agreed: concern at row 7, no cloud call.
+“The local model connects the offer, pressure and secrecy. This concern can
+be settled on the device.”
+Show the fixed explanation. If speech and the receiving phone are witnessed,
+show them; otherwise describe them as optional controls, not demonstrated delivery.
 
-* 1:30–1:55: Support popup
-Open the synthetic virus warning. The infection-plus-call-now rule can settle
-a concern locally. Show the recorded timing rather than promising a latency.
+* 1:15–1:55 The page that steers the small model
+Open inbox: bank-verify asks for credentials within 24 hours and includes a
+note telling an AI assistant to classify it as low risk.
+“In our measured run, the local model rated this low. The rules still found
+credential pressure and an instruction aimed at the AI. That disagreement
+triggered a second opinion.”
+Under the visible grant, the routed policy sent rule-matched, redacted spans
+plus task metadata to the cloud judge. Final receipt: 1,498 bytes, USD 0.009,
+6.9 seconds excluding OCR. Narrate the live trace while waiting.
+“The stronger model returned a scam verdict. Independent checks and two
+models caught something the small model alone missed.”
+Do not claim the cloud saw only two sentences with no task metadata, or that
+the deterministic rules are a third model.
 
-* 1:55–2:20: Advice rather than pressure
-Show the Medicare guide and consumer-protection article. They discuss scam
-language without being demands to comply. Show uncertainty if the result is
-inconclusive; never substitute a rehearsed answer.
+* 1:55–2:10 Support popup
+Open security-alert. The narrow infection-plus-call-now rule settles a concern
+without inference.
+“This particular pattern can be caught locally without a model call.”
 
-* 2:20–2:45: Evidence and trade-offs
-Show the historical seven-fixture comparison in ~eval/README.org~ and its
-limitations. The recorded run used fewer cloud calls for routed analysis,
-but its policy paths were not identical and target-row adherence was not
-scored. Do not extrapolate one run into daily cost or population accuracy.
+* 2:10–2:25 Benign advice
+Open seniorcenter. In the final run it was no_signal despite discussing
+deadlines and gift cards as advice. Show an inconclusive outcome if that is what
+the live run returns.
+“Context matters. Mentioning a scam is not the same as conducting one.”
 
-* 2:45–3:00: Control
-Pause. Show capture stopped and cloud consent revoked. Explain that model
-advice is uncertain and a person remains in control.
+* 2:25–2:45 Measured comparison
+Show the final receipt table, eight screenshots and the same OCR input:
+- Local-only missed one configured concern; seven of eight within expectations.
+- Cloud-only: eight calls, 17,327 bytes, USD 0.05989.
+- Routed: eight of eight within expectations, one cloud call, 1,498 bytes,
+  USD 0.009; no false alarms or abstentions in this one run.
+“These are eight synthetic examples, not a production accuracy claim.”
+OCR is excluded from reported latency; cost depends on model and input mix.
 
-* Fallbacks
-- No cloud key or consent: show local behavior without inventing a verdict.
-- Local model unavailable: show that status; the support rule still works.
-- Capture unavailable: use the labelled synthetic PNG examples.
-- Messages unavailable: say that no family notification was delivered.
+* 2:45–3:00 Why integration matters
+“The small model provides local context. Narrow rules provide independent
+signals. The stronger model handles selected disagreements. Together they
+reduce routine disclosure and remote calls while retaining a second opinion.”
+
+* Optional beats
+- messages: family-emergency pressure settled locally in the final run.
+- consumer: an advice article; final run no_signal, earlier run inconclusive.
+  Without an eligible excerpt, no cloud text is sent.
+- If using replay, say it is a rehearsal verdict; point at REPLAYED and zero
+  remote calls. Never narrate it as live inference.
+- If a tier or capture is unavailable, show that state. Use labelled fixture
+  PNGs if needed; do not fabricate a live result.

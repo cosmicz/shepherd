@@ -1,42 +1,70 @@
 #+title: Routing evaluation
 
-~eval/routing-eval.ts~ runs seven synthetic screenshots through three policies
-using the same Tesseract OCR text: local-only rules plus Qwen3, a naive
-cloud-only adapter, and the routed policy through the loopback server and
-~HttpAnalyzer~.
+~eval/routing-eval.ts~ runs eight synthetic 2x demo screenshots through three
+policies on the same Tesseract OCR text: local-only (rules plus Qwen3 through
+llama-server), cloud-only (each frame's redacted OCR, bounded to 2 KB before
+request wrapping), and the routed decision table. All three policies use the
+loopback HTTP server and ~HttpAnalyzer~ boundary in the final run.
 
 #+begin_src sh
 llama-server -m /path/to/qwen3-8b-q4_k_m.gguf --host 127.0.0.1 --port 8080 -c 8192 --jinja
-node --import tsx eval/routing-eval.ts
-node --env-file=.env --import tsx eval/routing-eval.ts --live-cloud --cap 30
+npx tsx eval/routing-eval.ts
+#+end_src
+The default is a cloud dry run, but it still invokes the local model.
+A paid live comparison must be deliberately requested:
+#+begin_src sh
+node --env-file=.env --import tsx eval/routing-eval.ts --live-cloud --cap 40
 #+end_src
 
-The default is cloud-dry-run, not entirely inference-free: local-only and
-routed policies can contact the existing local model. ~--live-cloud~ sends
-synthetic fixture text to OpenRouter and incurs API charges. Never substitute
-private screenshots in this harness. Running this evaluation was not part of
-the public snapshot's offline verification.
+* Final comparison — measured 2026-10-11 15:05 PDT
+Receipt: [[file:receipts/2026-10-11T1505-final-live.json][final eight-fixture receipt]].
+This run includes the host:port and TLD-agnostic redaction fixes. The local
+server was warmed; OCR time is excluded. Local model: qwen3-8b-q4_k_m.gguf.
+Requested and resolved cloud model: anthropic/claude-opus-5 through OpenRouter.
+Nine cloud requests across the comparison cost USD 0.06889 in total.
 
-* Historical fixture run
-Receipt: ~receipts/2026-10-11T1413-live.json~, recorded October 11, 2026.
+| policy | missed | false alarms | abstentions | within expected | row-target deviations | p50 ms | p95 ms | cloud calls | bytes out | known USD |
+|--------+--------+--------------+-------------+-----------------+-----------------------+--------+--------+-------------+-----------+-----------|
+| local-only | 1 | 0 | 1 | 7/8 | 4 | 2311 | 4020 | 0 | 0 | 0 |
+| cloud-only | 0 | 0 | 0 | 8/8 | n/a | 2822 | 3245 | 8 | 17327 | 0.05989 |
+| routed | 0 | 0 | 0 | 8/8 | 3 | 1131 | 6903 | 1 | 1498 | 0.009 |
 
-| policy     | missed | false alarms | abstentions | p50 ms | cloud calls | bytes out | known USD |
-|------------+--------+--------------+-------------+--------+-------------+-----------+-----------|
-| local-only |      0 |            0 |           1 |   1197 |           0 |         0 |         0 |
-| cloud-only |      0 |            0 |           0 |   2690 |           7 |     14321 |   0.05012 |
-| routed     |      0 |            0 |           0 |    989 |           1 |      1335 |  0.011275 |
+The bank page's instruction to the AI steered the local model to low risk.
+Local-only ended inconclusive (row 11), counted as a missed concern. Routed
+sent rule-matched, redacted spans plus task metadata to the judge and obtained
+a scam verdict (concern at row 13). Its complete request was 1,498 bytes.
+The other seven routed frames made no cloud call.
 
-These are seven hand-authored fixtures and one run, not an accuracy benchmark
-or production cost forecast. The runner checks allowed final outcomes, not
-the manifest's target routing rows. The Mars fixture used the local-model
-row, not its intended cloud route.
+The final routed Mars result was row 7; Medicare and consumer advice were
+no_signal at row 12c. These differed from desired route targets but stayed
+within their allowed final outcomes. Cloud-only does not use routing rows,
+so its row-target deviation count is not a comparable metric.
 
-The cloud-only path calls the adapter directly; the routed path includes the
-HTTP boundary. Latencies exclude OCR and are not matched-boundary comparisons.
-The one routed cloud call used the model-quote excerpt path. Disabling that
-path changes behavior and requires a new measurement; this receipt must not be
-presented as evidence for that later policy.
+* Limits and provenance
+Eight synthetic frames and one final run do not establish population accuracy,
+privacy or production economics. Model outputs, latency and costs vary.
+Abstentions are reported separately; an abstention on a scam also counts as a
+miss. The receipt's per-day figures extrapolate an unchanged fixture mix at
+one analysis every five seconds for eight hours, not measured user activity.
 
-The raw receipt includes hypothetical per-day extrapolations. They repeat this
-small fixture mix and are not expected real-world spend. Model identity,
-provider behavior and outcomes must be rechecked for any new run.
+Public copies redact private source commit identifiers and local model paths;
+they retain original model/runner/fixture/OCR hashes and all measurements.
+These are historical source-run receipts, not claims of inference performed on
+the later public squash commit. Publication changes documentation, comments,
+test labels and fixture descriptions, so source-file hashes may differ even
+where executable behavior and fixture pixels are unchanged. The runner records
+per-frame request byte counts and costs, not individual payload hashes.
+
+* Historical measurements — not final-code certification
+Earlier receipts remain for comparison, not as evidence for the final code:
+- [[file:receipts/2026-10-11T1413-live.json][14:13, seven fixtures]] used model-quote excerpts and a direct cloud-only
+  adapter; its latency boundary differs.
+- [[file:receipts/2026-10-11T1440-rc-live.json][14:40, seven fixtures]] used rules-only excerpts. The consumer advice
+  article was inconclusive and no routed frame reached the cloud.
+- [[file:receipts/2026-10-11T1450-final-8-fixtures-live.json][14:50, eight fixtures]] added bank verification but preceded the final
+  TLD-agnostic redactor. That change alters six cloud-only payloads; those
+  bytes, model outputs, cost and latency cannot certify the final version.
+- [[file:receipts/2026-10-11T1455-bank-verify-live.json][14:55 bank checks]] are likewise version-bound.
+
+The final comparison above supersedes these for presentation numbers. It does
+not retroactively alter their recorded outcomes.

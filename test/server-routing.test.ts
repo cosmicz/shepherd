@@ -16,7 +16,7 @@ const grant = (id: string): Grant => ({
   granted_at: new Date(now - 60_000).toISOString(), expires_at: new Date(now + 3600_000).toISOString(),
 });
 const frame = (consent?: Grant): TextFrame => ({
-  frame_id: `f-${Math.random()}`, source: 'native', ...session, text: 'Weekly garden club newsletter with tomato tips.',
+  frame_id: `f-${Math.random()}`, source: 'native', ...session, text: 'Weekly garden club newsletter with tomato tips. Call the club office to reserve a seat.',
   captured_at: new Date(now).toISOString(), ...(consent ? { consent } : {}),
 });
 
@@ -24,7 +24,7 @@ async function rig(cloudMode: 'ok' | 'hang' = 'ok', localDelay = 0) {
   const calls = { cloud: 0 };
   const local: LocalModelPort = { model: 'stub-local', available: async () => true,
     assess: (_t, signal) => new Promise((resolve, reject) => {
-      const timer = setTimeout(() => resolve({ risk: 'medium', reasons: ['impersonation'], cue: 'garden club newsletter' }), localDelay);
+      const timer = setTimeout(() => resolve({ risk: 'medium', reasons: ['impersonation'], cue: 'Call the club office to reserve a seat' }), localDelay);
       signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); });
     }) };
   const cloud: CloudJudgePort = { model: 'stub-cloud', available: () => true, redact: (x) => x,
@@ -34,7 +34,7 @@ async function rig(cloudMode: 'ok' | 'hang' = 'ok', localDelay = 0) {
       : Promise.resolve({ ok: true, verdict: 'scam', reasons: ['impersonation'], pattern: 'other', rationale: 'r', bytes_out: 640, payload_sha256: 'e'.repeat(64), cost: { known: true, usd: 0.005 } }); } };
   const consent = new GrantRegistry();
   const trace = new TraceHub();
-  const analyzer = new RoutedAnalyzer({ extractor: { extract: async (f) => ('text' in f ? f.text : '') }, local, cloud, consent, onAttempt: (s) => trace.recordAttempt(s) });
+  const analyzer = new RoutedAnalyzer({ extractor: { extract: async (f) => ('text' in f ? f.text : '') }, local, cloud, consent, quoteExcerpts: true, onAttempt: (s) => trace.recordAttempt(s) });
   const runtime = await startServer({ port: 0, analyzer, consent, trace });
   const { token } = await (await fetch(`${runtime.origin}/api/session`)).json() as { token: string };
   const headers = { origin: runtime.origin, 'content-type': 'application/json', 'x-shepherd-token': token };
@@ -131,6 +131,8 @@ test('/trace page and SSE feed: token required, content-free events and cumulati
   const all = received.join('');
   assert.match(all, /event: event/);
   assert.match(all, /event: attempt/);
-  for (const fragment of ['Secret', '4417', 'private plans', 'gift cards', 'suspended']) assert.ok(!all.includes(fragment), `no screen text in the feed: ${fragment}`);
+  // Distinctive phrases only: bare digits such as 4417 can occur in hashes and timings.
+  for (const fragment of ['Secret note', 'garden party', 'private plans', 'gift cards', 'suspended today']) assert.ok(!all.includes(fragment), `no screen text in the feed: ${fragment}`);
+  for (const field of ['"evidence"', '"text"', '"excerpt"', '"message"']) assert.ok(!all.includes(field), `no ${field} field in the feed`);
   assert.deepEqual([r.trace.counters.remote_calls, r.trace.counters.bytes_out, r.trace.counters.cost_known_usd], [1, 640, 0.005]);
 });

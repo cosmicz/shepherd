@@ -3,7 +3,7 @@
 
 Shepherd watches a screen surface you choose, looks for scam pressure, and
 offers a plain-language caution. It combines local OCR and rules, a local
-language model, and an optional cloud judge. This is an early review snapshot:
+language model, and an optional cloud judge. This is a hackathon prototype:
 it can miss threats or flag innocent content. No result authenticates a person,
 website or message.
 
@@ -81,10 +81,12 @@ keeps at most 100 generic summaries, not screenshots, OCR, evidence, titles or
 URLs. Full local evidence journaling and automatic expiry are not implemented.
 
 Cloud requests use bounded excerpts and pattern redaction, never screenshots.
-The current excerpt path can use a rule-matched span or a short verbatim quote
-selected by the local model. A valid quote can still contain private text:
-anchoring is not a privacy guarantee. See the limitations below before
-enabling cloud processing. On-screen content and model output are untrusted.
+By default, only rule-matched spans can form an excerpt; neighbouring lines,
+titles and tab bars are not added. Model-quote excerpts are off by default.
+~SHEPHERD_QUOTE_EXCERPTS=1~ enables a pressure-cue-gated quote path and changes
+the consent statement. A matched span or valid quote can still contain private
+text: redaction is not a privacy guarantee. Use synthetic or non-sensitive
+pages for the demo. On-screen content and model output are untrusted.
 
 * Interfaces and checks
 | Interface | Purpose |
@@ -98,9 +100,9 @@ enabling cloud processing. On-screen content and model output are untrusted.
 | GET /trace | Content-free routing display |
 
 ~npm run check~ runs root tests, tool suites, TypeScript checks/build and
-Chromium specs. ~node demo/check.mjs~ checks the seven synthetic fixtures with
+Chromium specs. ~node demo/check.mjs~ checks the eight synthetic fixtures with
 real Tesseract OCR. No paid inference or live screen capture is needed.
-See [[file:demo/README.org][the demo kit]] and [[file:eval/README.org][the evaluation guide]].
+See [[file:demo/runbook.org][the demo runbook]], [[file:demo/README.org][the demo kit]] and [[file:eval/README.org][the evaluation guide]].
 
 PNG input is limited to 8 MiB decoded, 5120 pixels per side and 10 million
 pixels total. The request-body limit accounts for base64 expansion.
@@ -108,22 +110,33 @@ Native text input is limited to 32 KiB. One analysis runs at a time.
 Cloud usage has session limits and a bounded cache; unknown cost remains
 unknown rather than being reported as free.
 
+* Measured demo and replay
+One eight-fixture run found all configured concerns with no false alarms under
+the routed policy: one cloud call, 1,498 outbound bytes and USD 0.009 reported
+cost. The cloud-only comparison made eight calls (17,327 bytes, USD 0.05989).
+The local-only comparison missed one concern. These are small-sample results,
+not production accuracy or cost guarantees; OCR time is excluded from latency.
+The [[file:eval/README.org][evaluation guide]] contains the receipt, method and limitations.
+
+~SHEPHERD_CLOUD_RECORD~ saves closed verdict codes keyed by excerpt hash, not
+screen text. ~SHEPHERD_CLOUD_REPLAY~ loads a rehearsal recording. Replays are
+marked REPLAYED, counted separately, and report zero remote calls, bytes and
+cost. Missing replay entries are unavailable, never fabricated verdicts.
+
 * Known limitations in this snapshot
-- A local-model quote can select unrelated sensitive text. Bare URLs with
-  some domain suffixes can evade redaction. Use synthetic or non-sensitive
-  pages while exercising cloud processing.
-- The local adapter marks truncated input, but the composite does not yet
-  preserve that flag. A low result can miss evidence beyond the local cap.
-- Standalone adapter accounting/deadline edge cases remain under repair.
-  Cloud analyzer metadata names the downstream provider rather than the
-  OpenRouter routing service.
+- The local model sees at most 4,096 characters. A low result on partial input
+  becomes inconclusive, not no_signal. Larger context windows need latency
+  evaluation; the fallback does not analyze the omitted text.
 - Lookalike-domain heuristics can overflag benign names and miss others.
-  The reason vocabulary is closed; a general unclassified-concern path is
-  not implemented. Only the narrow support-pressure rule settles a concern
-  without model confirmation.
-- Family delivery failures are not consistently surfaced. Grant expiry and
-  renewal controls are basic.
+  ~other_concern~ allows a grounded model concern outside the named categories;
+  it does not guarantee novel-attack detection. Only the narrow support-pressure
+  rule settles a concern without model confirmation.
+- Family delivery failures are surfaced, but an accepted send is not proof
+  that the recipient saw the message. Grant expiry and renewal controls are basic.
 - Tesseract can interleave multi-column text. Accessibility-tree extraction,
   generated-media detection and local evidence journaling are not included.
+- The native-source adapter is tested but not connected to the companion's
+  default capture path. Start llama-server separately; managed model lifecycle
+  and offline threat-list tagging are not part of this snapshot.
 - Fixture measurements are small, historical samples, not guarantees of
   accuracy, privacy, availability or production economics.

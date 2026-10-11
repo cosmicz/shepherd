@@ -1,4 +1,4 @@
-// Routing policy, the contract v2 total routing table (rows 1-18).
+// Routing policy, contract v2.1 total routing table (rows 1-18, 12d).
 // Pure: the composite analyzer feeds it what each tier returned and does what it
 // says. Row 19 (abort at any boundary) is the composite's AnalysisCancelled path.
 import type { FailureKind, Pattern, Reason, Route, Status } from './assessment.ts';
@@ -25,7 +25,7 @@ export type CloudView =
   | { kind: 'failed'; failure_kind: Exclude<FailureKind, 'no_consent' | 'budget' | 'no_anchor'> };
 export interface PolicyInput { rules: RulesView; local?: LocalView; gate?: Gate; cloud?: CloudView }
 
-// Which fixed local template (ztq) the outcome uses: 'evidence' shows the rules
+// Which fixed local template the outcome uses: 'evidence' shows the rules
 // evidence, 'caution' the cautionary text, 'scam' the scam text.
 export type MessageKind = 'default' | 'evidence' | 'caution' | 'scam';
 export type Decision =
@@ -66,7 +66,11 @@ export function decide(input: PolicyInput): Decision {
   } else {
     if (local.risk === 'low') return final('12c', 'no_signal', 'local-model');
     cloudRow = '12';
-    fallback = final('12b', 'inconclusive', 'local-model');
+    // Row 12d (v2.1): when nothing may be sent, a local high concern outside
+    // the named categories (other_concern, cue already verified) is a spoken
+    // caution; family is not alerted without rules or cloud corroboration.
+    fallback = local.risk === 'high' && local.reasons.includes('other_concern')
+      ? final('12d', 'concern', 'local-model', 'caution') : final('12b', 'inconclusive', 'local-model');
   }
 
   const skipped = closed(gate);

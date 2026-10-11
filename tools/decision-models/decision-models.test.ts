@@ -14,6 +14,9 @@ test('retains a closed valid choice distribution without leaking caller metadata
   const result = await adapter.decide({ ...input, title: 'private title', url: 'https://private' });
   assert.equal(result.inference_status, 'succeeded');
   assert.equal(result.provider_confidence, .8);
+  assert.equal(result.remote_calls, 1);
+  assert.equal(result.bytes_out, Buffer.byteLength(body));
+  assert.deepEqual(result.cost, { known: false, usd: 0 });
   assert.equal(body.includes('private'), false);
 });
 
@@ -38,4 +41,11 @@ test('fails closed for a mismatched model or a bounded transport deadline', asyn
 
   const timed = new DecisionAdapter({ timeoutMs: 5, transport: async ({ signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) });
   assert.equal((await timed.decide(input)).inference_status, 'failed');
+
+  const ignoresAbort = new DecisionAdapter({ timeoutMs: 5, transport: async () => new Promise(() => {}) });
+  const started = performance.now();
+  const result = await ignoresAbort.decide(input);
+  assert.equal(result.inference_status, 'failed');
+  assert.equal(result.remote_calls, 1);
+  assert.ok(performance.now() - started < 100, 'deadline must settle even if transport ignores abort');
 });

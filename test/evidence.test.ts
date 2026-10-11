@@ -28,7 +28,7 @@ test('no reason means no evidence', () => {
   assert.deepEqual(analyzeText(`${head}Never pay with gift cards.`, context).evidence, []);
 });
 
-// OCR of UI text has no sentence punctuation, so a clause can
+// the witness: OCR of UI text has no sentence punctuation, so a clause can
 // be the whole screen. Evidence must still be a window around the trigger.
 const banking = Array.from({ length: 8 }, (_, i) => `Inbox ${i + 3} Weather Checking 44${i}7 balance 23${i}0 Savings 99${i}1 Transfers Statements`).join('\n');
 

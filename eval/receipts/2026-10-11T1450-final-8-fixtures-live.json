@@ -1,0 +1,557 @@
+{
+  "run_at": "2026-10-11T21:49:28.897Z",
+  "provenance": {
+    "source_sha": null,
+    "source_dirty": false,
+    "runner_sha256": "45d478b421bc1a74332bbb505df053b544accb91cd2ecd2d72e3d708a2e15c37",
+    "fixtures_sha256": "315460acf7d2dcf235e792a2682b18e084df7f89f07c3eeda660fe570513369b",
+    "local_model_file": "qwen3-8b-q4_k_m.gguf",
+    "local_model_sha256": "a3de86cd1c132c822487ededd47a324c50491393e6565cd14bafa40d0b8e686f",
+    "cloud_model_requested": "anthropic/claude-opus-5",
+    "cloud_models_resolved": [
+      "anthropic/claude-opus-5"
+    ],
+    "ocr_time_excluded": true,
+    "boundary": "loopback HTTP server + HttpAnalyzer for every policy",
+    "source_sha_redacted": true,
+    "publication_note": "Private source commit and local model path redacted; original source-run hashes and measurements retained. See eval/README.org."
+  },
+  "live_cloud": true,
+  "model": "anthropic/claude-opus-5",
+  "cap": 40,
+  "dispatched": 9,
+  "frames": 8,
+  "ocr_sha256": "b2767d1a59df7af54347178f787513fdb88f515ed612f226bfe0aef4f60f6542",
+  "summaries": [
+    {
+      "policy": "local-only",
+      "missed": 1,
+      "false_alarms": 0,
+      "abstentions": 1,
+      "within_expected": 7,
+      "row_target_deviations": 4,
+      "p50_ms": 2145,
+      "p95_ms": 3740,
+      "remote_calls": 0,
+      "bytes_out": 0,
+      "cost_known_usd": 0,
+      "unknown_cost_attempts": 0,
+      "per_day_calls_same_mix": 0,
+      "per_day_known_usd_same_mix": 0
+    },
+    {
+      "policy": "cloud-only",
+      "missed": 0,
+      "false_alarms": 0,
+      "abstentions": 0,
+      "within_expected": 8,
+      "row_target_deviations": 8,
+      "p50_ms": 2771,
+      "p95_ms": 4143,
+      "remote_calls": 8,
+      "bytes_out": 17451,
+      "cost_known_usd": 0.060675,
+      "unknown_cost_attempts": 0,
+      "per_day_calls_same_mix": 5760,
+      "per_day_known_usd_same_mix": 43.69
+    },
+    {
+      "policy": "routed",
+      "missed": 0,
+      "false_alarms": 0,
+      "abstentions": 0,
+      "within_expected": 8,
+      "row_target_deviations": 3,
+      "p50_ms": 1207,
+      "p95_ms": 5154,
+      "remote_calls": 1,
+      "bytes_out": 1481,
+      "cost_known_usd": 0.00905,
+      "unknown_cost_attempts": 0,
+      "per_day_calls_same_mix": 720,
+      "per_day_known_usd_same_mix": 6.52
+    }
+  ],
+  "rows": {
+    "local-only": [
+      {
+        "id": "mars-colony-preipo",
+        "kind": "scam",
+        "status": "concern",
+        "expected": [
+          "concern"
+        ],
+        "row": "7",
+        "target_rows": [
+          "8",
+          "13"
+        ],
+        "row_deviation": true,
+        "ms": 3740,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:concern > local-model:concern"
+      },
+      {
+        "id": "mac-infected-call-support",
+        "kind": "scam",
+        "status": "concern",
+        "expected": [
+          "concern"
+        ],
+        "row": "3",
+        "target_rows": [
+          "3"
+        ],
+        "row_deviation": false,
+        "ms": 23,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:concern"
+      },
+      {
+        "id": "grandson-bail-giftcards",
+        "kind": "scam",
+        "status": "concern",
+        "expected": [
+          "concern"
+        ],
+        "row": "7",
+        "target_rows": [
+          "7"
+        ],
+        "row_deviation": false,
+        "ms": 3487,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:concern > local-model:concern"
+      },
+      {
+        "id": "medicare-enrollment",
+        "kind": "hard_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal",
+          "inconclusive"
+        ],
+        "row": "12c",
+        "target_rows": [
+          "12",
+          "15"
+        ],
+        "row_deviation": true,
+        "ms": 2279,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:no_signal > local-model:no_signal"
+      },
+      {
+        "id": "support-scam-advice",
+        "kind": "hard_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal",
+          "inconclusive"
+        ],
+        "row": "12c",
+        "target_rows": [
+          "12",
+          "15"
+        ],
+        "row_deviation": true,
+        "ms": 2145,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:no_signal > local-model:no_signal"
+      },
+      {
+        "id": "bank-verify",
+        "kind": "scam",
+        "status": "inconclusive",
+        "expected": [
+          "concern"
+        ],
+        "row": "11",
+        "target_rows": [
+          "10",
+          "13"
+        ],
+        "row_deviation": true,
+        "ms": 1914,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:concern > local-model:no_signal > cloud:skipped/no_consent"
+      },
+      {
+        "id": "weather",
+        "kind": "easy_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal"
+        ],
+        "row": "12c",
+        "target_rows": [
+          "12c"
+        ],
+        "row_deviation": false,
+        "ms": 1791,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:no_signal > local-model:no_signal"
+      },
+      {
+        "id": "news",
+        "kind": "easy_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal"
+        ],
+        "row": "12c",
+        "target_rows": [
+          "12c"
+        ],
+        "row_deviation": false,
+        "ms": 1935,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:no_signal > local-model:no_signal"
+      }
+    ],
+    "cloud-only": [
+      {
+        "id": "mars-colony-preipo",
+        "kind": "scam",
+        "status": "concern",
+        "expected": [
+          "concern"
+        ],
+        "row": "",
+        "target_rows": [
+          "8",
+          "13"
+        ],
+        "row_deviation": true,
+        "ms": 3885,
+        "remote_calls": 1,
+        "bytes_out": 2611,
+        "cost_usd": 0.00918,
+        "unknown_cost": 0,
+        "steps": "cloud:concern"
+      },
+      {
+        "id": "mac-infected-call-support",
+        "kind": "scam",
+        "status": "concern",
+        "expected": [
+          "concern"
+        ],
+        "row": "",
+        "target_rows": [
+          "3"
+        ],
+        "row_deviation": true,
+        "ms": 2771,
+        "remote_calls": 1,
+        "bytes_out": 1774,
+        "cost_usd": 0.006595,
+        "unknown_cost": 0,
+        "steps": "cloud:concern"
+      },
+      {
+        "id": "grandson-bail-giftcards",
+        "kind": "scam",
+        "status": "concern",
+        "expected": [
+          "concern"
+        ],
+        "row": "",
+        "target_rows": [
+          "7"
+        ],
+        "row_deviation": true,
+        "ms": 2877,
+        "remote_calls": 1,
+        "bytes_out": 2001,
+        "cost_usd": 0.007285,
+        "unknown_cost": 0,
+        "steps": "cloud:concern"
+      },
+      {
+        "id": "medicare-enrollment",
+        "kind": "hard_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal",
+          "inconclusive"
+        ],
+        "row": "",
+        "target_rows": [
+          "12",
+          "15"
+        ],
+        "row_deviation": true,
+        "ms": 2450,
+        "remote_calls": 1,
+        "bytes_out": 2592,
+        "cost_usd": 0.008335,
+        "unknown_cost": 0,
+        "steps": "cloud:no_signal"
+      },
+      {
+        "id": "support-scam-advice",
+        "kind": "hard_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal",
+          "inconclusive"
+        ],
+        "row": "",
+        "target_rows": [
+          "12",
+          "15"
+        ],
+        "row_deviation": true,
+        "ms": 2373,
+        "remote_calls": 1,
+        "bytes_out": 2406,
+        "cost_usd": 0.00739,
+        "unknown_cost": 0,
+        "steps": "cloud:no_signal"
+      },
+      {
+        "id": "bank-verify",
+        "kind": "scam",
+        "status": "concern",
+        "expected": [
+          "concern"
+        ],
+        "row": "",
+        "target_rows": [
+          "10",
+          "13"
+        ],
+        "row_deviation": true,
+        "ms": 4143,
+        "remote_calls": 1,
+        "bytes_out": 2094,
+        "cost_usd": 0.00881,
+        "unknown_cost": 0,
+        "steps": "cloud:concern"
+      },
+      {
+        "id": "weather",
+        "kind": "easy_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal"
+        ],
+        "row": "",
+        "target_rows": [
+          "12c"
+        ],
+        "row_deviation": true,
+        "ms": 2329,
+        "remote_calls": 1,
+        "bytes_out": 1781,
+        "cost_usd": 0.00639,
+        "unknown_cost": 0,
+        "steps": "cloud:no_signal"
+      },
+      {
+        "id": "news",
+        "kind": "easy_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal"
+        ],
+        "row": "",
+        "target_rows": [
+          "12c"
+        ],
+        "row_deviation": true,
+        "ms": 2170,
+        "remote_calls": 1,
+        "bytes_out": 2192,
+        "cost_usd": 0.00669,
+        "unknown_cost": 0,
+        "steps": "cloud:no_signal"
+      }
+    ],
+    "routed": [
+      {
+        "id": "mars-colony-preipo",
+        "kind": "scam",
+        "status": "concern",
+        "expected": [
+          "concern"
+        ],
+        "row": "7",
+        "target_rows": [
+          "8",
+          "13"
+        ],
+        "row_deviation": true,
+        "ms": 1918,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:concern > local-model:concern"
+      },
+      {
+        "id": "mac-infected-call-support",
+        "kind": "scam",
+        "status": "concern",
+        "expected": [
+          "concern"
+        ],
+        "row": "3",
+        "target_rows": [
+          "3"
+        ],
+        "row_deviation": false,
+        "ms": 10,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:concern"
+      },
+      {
+        "id": "grandson-bail-giftcards",
+        "kind": "scam",
+        "status": "concern",
+        "expected": [
+          "concern"
+        ],
+        "row": "7",
+        "target_rows": [
+          "7"
+        ],
+        "row_deviation": false,
+        "ms": 2633,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:concern > local-model:concern"
+      },
+      {
+        "id": "medicare-enrollment",
+        "kind": "hard_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal",
+          "inconclusive"
+        ],
+        "row": "12c",
+        "target_rows": [
+          "12",
+          "15"
+        ],
+        "row_deviation": true,
+        "ms": 1025,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:no_signal > local-model:no_signal"
+      },
+      {
+        "id": "support-scam-advice",
+        "kind": "hard_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal",
+          "inconclusive"
+        ],
+        "row": "12c",
+        "target_rows": [
+          "12",
+          "15"
+        ],
+        "row_deviation": true,
+        "ms": 1207,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:no_signal > local-model:no_signal"
+      },
+      {
+        "id": "bank-verify",
+        "kind": "scam",
+        "status": "concern",
+        "expected": [
+          "concern"
+        ],
+        "row": "13",
+        "target_rows": [
+          "10",
+          "13"
+        ],
+        "row_deviation": false,
+        "ms": 5154,
+        "remote_calls": 1,
+        "bytes_out": 1481,
+        "cost_usd": 0.00905,
+        "unknown_cost": 0,
+        "steps": "rules:concern > local-model:no_signal > cloud:concern"
+      },
+      {
+        "id": "weather",
+        "kind": "easy_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal"
+        ],
+        "row": "12c",
+        "target_rows": [
+          "12c"
+        ],
+        "row_deviation": false,
+        "ms": 630,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:no_signal > local-model:no_signal"
+      },
+      {
+        "id": "news",
+        "kind": "easy_benign",
+        "status": "no_signal",
+        "expected": [
+          "no_signal"
+        ],
+        "row": "12c",
+        "target_rows": [
+          "12c"
+        ],
+        "row_deviation": false,
+        "ms": 1096,
+        "remote_calls": 0,
+        "bytes_out": 0,
+        "cost_usd": 0,
+        "unknown_cost": 0,
+        "steps": "rules:no_signal > local-model:no_signal"
+      }
+    ]
+  }
+}

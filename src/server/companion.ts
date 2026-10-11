@@ -6,6 +6,8 @@
 // The durable scope statement. Shown verbatim
 // when the person grants cloud consent.
 export const scopeStatement = 'Shepherd may send up to 2 KB of on-screen text with numbers, emails, addresses and web addresses removed to a cloud model when it is unsure. Nothing else leaves this computer.';
+// With model-quote excerpts enabled (SHEPHERD_QUOTE_EXCERPTS=1) the statement says so.
+export const scopeStatementWithQuotes = 'Shepherd may send up to 2 KB of on-screen text, and a short phrase the local model quotes from the screen, with numbers, emails, addresses and web addresses removed to a cloud model when it is unsure. Nothing else leaves this computer.';
 
 export const companionPage = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Shepherd</title>
@@ -47,11 +49,16 @@ export const companionPage = `<!doctype html><html lang="en"><head><meta charset
     </div>
     <p id="consent" class="muted">Not allowed. Shepherd only uses this computer.</p>
   </section>
+  <section>
+    <h2 style="font-size:20px;margin:0 0 8px">Family alerts</h2>
+    <div class="controls" style="margin:0"><button id="family-test" type="button">Send a test message</button></div>
+    <p id="family" class="muted" aria-live="polite">Alerts go only to the family contact set up on this computer.</p>
+  </section>
   <p class="muted"><a href="/trace" target="_blank" rel="noopener">Open the routing trace</a> (for judges: what ran, what it cost, what left the machine).</p>
 </main><script type="module" src="/companion.js"></script></body></html>`;
 
-export const companionScript = `import { Session, HttpAnalyzer, HttpFamilyAlert, LocalHistory, demoPersona, speechKind, speechText, patternOf, patternLabels } from '/dist/index.js';
-const SCOPE = ${JSON.stringify(scopeStatement)};
+export const companionScriptFor = (quotes: boolean) => `import { Session, HttpAnalyzer, HttpFamilyAlert, LocalHistory, demoPersona, speechKind, speechText, patternOf, patternLabels } from '/dist/index.js';
+const SCOPE = ${JSON.stringify(quotes ? scopeStatementWithQuotes : scopeStatement)};
 const $ = (id) => document.getElementById(id);
 const origin = location.origin;
 const sessionId = crypto.randomUUID();
@@ -63,13 +70,17 @@ $('scope').textContent = SCOPE;
 const labels = { concern: 'Pause and check', no_signal: 'No warning signs found', inconclusive: 'Not sure', unavailable: 'Could not check this screen' };
 const reasonText = { support_pressure: 'a fake support warning', payment_pressure: 'pressure to pay in gift cards or crypto', credential_pressure: 'a request for a password or code',
   investment_pressure: 'investment pressure', impersonation: 'someone pretending to be a company or person', remote_access: 'a request for remote access',
-  family_emergency: 'a family emergency request', prize_claim: 'a prize claim', ai_instruction: 'text that tries to instruct an AI' };
+  family_emergency: 'a family emergency request', prize_claim: 'a prize claim', ai_instruction: 'text that tries to instruct an AI',
+  other_concern: 'Other / unclassified concern' };
 
 async function token() { return (await (await fetch('/api/session')).json()).token; }
+// Grant lifetime: one hour (tests may shorten it via window.__shepherdGrantMs).
+const grantMs = () => (typeof window.__shepherdGrantMs === 'number' ? window.__shepherdGrantMs : 3600_000);
+let expired = false;
 async function registerGrant(source) {
   const now = new Date();
   const value = { id: crypto.randomUUID(), session_id: sessionId, generation: session.state.generation, source, scope: 'redacted-text', max_bytes: 2048, version: 1,
-    granted_at: now.toISOString(), expires_at: new Date(now.getTime() + 3600_000).toISOString() };
+    granted_at: now.toISOString(), expires_at: new Date(now.getTime() + grantMs()).toISOString() };
   const response = await fetch('/api/consent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shepherd-Token': await token() }, body: JSON.stringify(value) });
   if (!response.ok) throw Error('Grant not registered');
   return value;
@@ -82,10 +93,16 @@ async function revokeGrant() {
   await fetch('/api/consent/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'X-Shepherd-Token': await token() } }).catch(() => {});
 }
 function renderConsent() {
-  $('consent').textContent = grant ? 'Allowed for this session until ' + new Date(grant.expires_at).toLocaleTimeString() + '.' : 'Not allowed. Shepherd only uses this computer.';
+  $('consent').textContent = grant ? 'Allowed for this session until ' + new Date(grant.expires_at).toLocaleTimeString() + '.'
+    : expired ? 'Cloud permission expired. Shepherd only uses this computer until you extend it.' : 'Not allowed. Shepherd only uses this computer.';
+  $('grant').textContent = expired && !grant ? 'Extend for this session' : 'Allow for this session';
   $('grant').disabled = !!grant || !stream;
   $('revoke').disabled = !grant;
 }
+// Surface expiry instead of silently falling back to the no-consent rows.
+setInterval(() => {
+  if (grant && Date.now() >= Date.parse(grant.expires_at)) { grant = null; expired = true; renderConsent(); }
+}, 500);
 function spokenText(a) {
   const kind = speechKind(a);
   if (!kind) return a.message;
@@ -126,6 +143,7 @@ const session = new Session({
   onChange: (state) => render(state),
   persona: demoPersona,
   notifyFamily: (pattern) => family.notify(pattern),
+  onFamilyResult: (status) => { if (status === 'unavailable') $('family').textContent = 'Family alert could not be sent. Check the family contact on this computer.'; },
   interval_ms: 5000,
 });
 session.setPreferences(demoPersona.preferences);
@@ -166,10 +184,15 @@ $('start').addEventListener('click', async () => {
 $('pause').addEventListener('click', async () => { session.pause(); await revokeGrant(); render(session.state); });
 $('read').addEventListener('click', () => { if (current) speak(spokenText(current)); });
 $('grant').addEventListener('click', async () => {
-  try { grant = await registerGrant(session.state.phase === 'active' ? (stream?.getVideoTracks()[0].getSettings().displaySurface === 'browser' ? 'tab' : 'window') : 'window'); }
+  try { expired = false; grant = await registerGrant(session.state.phase === 'active' ? (stream?.getVideoTracks()[0].getSettings().displaySurface === 'browser' ? 'tab' : 'window') : 'window'); }
   catch { grant = null; $('consent').textContent = 'Could not record the permission. Shepherd only uses this computer.'; }
   renderConsent();
 });
-$('revoke').addEventListener('click', () => revokeGrant());
+$('revoke').addEventListener('click', () => { expired = false; return revokeGrant(); });
+$('family-test').addEventListener('click', async () => {
+  $('family').textContent = 'Sending a test message…';
+  const status = await family.test();
+  $('family').textContent = status === 'sent' ? 'Test message sent to the family contact.' : 'Test message could not be sent. Check the family contact on this computer.';
+});
 render(session.state);
 `;
