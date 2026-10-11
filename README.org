@@ -24,11 +24,6 @@ Screen text comes from a browser window share with OCR, or from a small
 native macOS helper (ScreenCaptureKit plus Apple Vision) written from Apple
 documentation only.
 
-* Status
-This public repository receives one squashed commit per accepted change set.
-Development history lives on a private trunk. Status markers in the
-submission distinguish measured results from targets.
-
 * Running
 Requires Node 22+, Tesseract with English data, and optionally llama.cpp with
 a local GGUF model and an OpenRouter key for the cloud tier.
