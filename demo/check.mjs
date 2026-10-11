@@ -38,7 +38,7 @@ function ocr(png) {
 const failures = [];
 const fail = (id, message) => { failures.push(`${id}: ${message}`); console.log(`FAIL ${id}: ${message}`); };
 const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
-// Route each terminal row of the fyv v2 routing table resolves to (rows 4/8/10/12 hand off to 13-17).
+// Route each terminal row of the v2 routing table resolves to (rows 4/8/10/12 hand off to 13-17).
 const terminalRoute = { 1: 'local', 2: 'local', 3: 'local', 5: 'local', 6: 'local', 7: 'local-model', 9: 'local-model', 11: 'local-model',
   '12b': 'local-model', '12c': 'local-model', 13: 'cloud', 14: 'cloud', 15: 'cloud', 16: 'cloud', 17: 'cloud' };
 

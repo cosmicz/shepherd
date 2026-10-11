@@ -121,7 +121,7 @@ test('/trace page and SSE feed: token required, content-free events and cumulati
   stream.setEncoding('utf8');
   stream.on('data', (chunk: string) => received.push(chunk));
   await r.register(grant('g7'));
-  const text = 'Secret account 4417 balance and private note';
+  const text = 'Secret note 4417 about the garden party and private plans';
   await r.analyze({ ...frame(grant('g7')), text });
   assert.equal(r.calls.cloud, 0, 'an unanchored screen is never sent');
   // A frame whose rules evidence is screen text: evidence must not reach the feed either.
@@ -131,6 +131,6 @@ test('/trace page and SSE feed: token required, content-free events and cumulati
   const all = received.join('');
   assert.match(all, /event: event/);
   assert.match(all, /event: attempt/);
-  for (const fragment of ['Secret', '4417', 'private note', 'gift cards', 'suspended']) assert.ok(!all.includes(fragment), `no screen text in the feed: ${fragment}`);
+  for (const fragment of ['Secret', '4417', 'private plans', 'gift cards', 'suspended']) assert.ok(!all.includes(fragment), `no screen text in the feed: ${fragment}`);
   assert.deepEqual([r.trace.counters.remote_calls, r.trace.counters.bytes_out, r.trace.counters.cost_known_usd], [1, 640, 0.005]);
 });

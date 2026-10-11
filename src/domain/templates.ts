@@ -1,5 +1,5 @@
-// Fixed local templates for what the person hears and what family receives
-//. Keyed by (status, pattern, verdict kind).
+// Fixed local templates for what the person hears and what family receives.
+// Keyed by (status, pattern, verdict kind).
 // No provider-authored text ever reaches speech or Messages: models contribute
 // closed codes only, and every placeholder is filled from local configuration.
 import type { Assessment, Pattern, Reason } from './assessment.ts';
@@ -34,7 +34,7 @@ export const templateTable = {
 const reasonPattern: Record<Reason, Pattern> = {
   support_pressure: 'tech_support', remote_access: 'remote_access', credential_pressure: 'credential_phishing',
   investment_pressure: 'celebrity_investment', family_emergency: 'family_emergency', prize_claim: 'prize_or_lottery',
-  payment_pressure: 'other', impersonation: 'other',
+  payment_pressure: 'other', impersonation: 'other', ai_instruction: 'other',
 };
 
 function render(template: string, values: Record<string, string | undefined>): string {

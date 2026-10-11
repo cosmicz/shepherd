@@ -66,7 +66,7 @@ test('malformed routes, analyzers, reasons and traces are rejected', () => {
     { ...legacy, evidence: ['x'.repeat(201)] },
     { ...legacy, evidence: ['a', 'b', 'c', 'd'] },
     { ...legacy, source: 'monitor' },
-    // the team F-TRACE: a model or cloud route must carry the step that decided it.
+    // A model or cloud route must carry the step that decided it.
     { ...cloud, trace: undefined },
     { ...cloud, trace: [rulesStep] },
     { ...cloud, trace: [rulesStep, { ...cloudStep, outcome: 'skipped', failure_kind: 'no_consent', remote_calls: 0, bytes_out: 0, cost: { known: true, usd: 0 } }] },

@@ -16,7 +16,7 @@ const frame: TextFrame = { frame_id: 'f-1', source: 'native', ...session, consen
 
 test('local bridge maps the tea adapter: value, malformed, unavailable', async () => {
   const value = { risk: 'high', reasons: ['family_emergency'], cue: 'bail request' };
-  assert.deepEqual(await new LlamaLocalModel({ fetchImpl: chat(value) }).assess('text', new AbortController().signal), value);
+  assert.deepEqual(await new LlamaLocalModel({ fetchImpl: chat(value) }).assess('bail request', new AbortController().signal), { ...value, quote: 'bail request', partial: false });
   await assert.rejects(new LlamaLocalModel({ fetchImpl: chat({ risk: 'high', reasons: [], cue: '' }) }).assess('t', new AbortController().signal), (e) => e instanceof LocalModelError && e.failure_kind === 'malformed');
   await assert.rejects(new LlamaLocalModel({ fetchImpl: chat(value, false) }).assess('t', new AbortController().signal), (e) => e instanceof LocalModelError && e.failure_kind === 'unavailable');
   assert.equal(await new LlamaLocalModel({ fetchImpl: (async () => { throw Error('refused'); }) as unknown as typeof fetch }).available(), false);

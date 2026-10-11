@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { decide, type Decision, type LocalView, type PolicyInput } from '../src/domain/policy.ts';
 
-// One case per row of the the contract v2 routing table. Row 19 (abort)
+// One case per row of the contract v2 routing table. Row 19 (abort)
 // is the composite's AnalysisCancelled path and is tested there.
 const open = { grant: true, provider: true, budget: true };
 const strong = { status: 'concern', reasons: ['support_pressure'] } as const;

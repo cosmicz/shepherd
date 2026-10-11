@@ -1,15 +1,27 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { OcrAnalyzer } from '../adapters/ocr.ts';
 import { AnalysisCancelled, type AnalyzerPort } from '../application/analyzer.ts';
 import { makeUnavailable, parseAssessment, type Frame } from '../domain/assessment.ts';
+import { companionPage, companionScript } from './companion.ts';
 import { GrantError, type GrantRegistry } from './consent.ts';
 import { decodeFrame, MAX_BODY_BYTES } from './frame.ts';
 import { tracePage, traceScript, type TraceHub } from './trace.ts';
 import type { MessagesFamilyAlert } from '../adapters/family.ts';
 import { oneOf, patterns } from '../domain/assessment.ts';
+
+// Compiled browser-safe runtime modules, served to the companion page. Same
+// relative location from src/server (tsx) and dist/server (built).
+const DIST = new URL('../../dist/', import.meta.url);
+// Only the browser-safe runtime graph behind dist/index.js is served.
+const browserModules = new Set([
+  'index', 'domain/assessment', 'domain/rules', 'domain/policy', 'domain/templates', 'domain/persona',
+  'application/analyzer', 'application/session', 'adapters/history', 'adapters/http-analyzer', 'adapters/http-family',
+].map((name) => `/dist/${name}.js`));
+const pagePolicy = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'";
 
 // Routed analyses can take a local model and a cloud call (16 s end to end).
 const REQUEST_DEADLINE_MS = 20_000;
@@ -144,6 +156,14 @@ export async function startServer(options: { port?: number; analyzer?: AnalyzerP
         let pattern;
         try { pattern = oneOf((body as Record<string, unknown>)?.pattern, patterns); } catch { throw new HttpError(400); }
         send(response, 200, { status: family ? await family.notify(pattern) : 'unavailable' });
+      } else if (request.method === 'GET' && request.url === '/companion') {
+        sendText(response, 'text/html; charset=utf-8', companionPage, pagePolicy);
+      } else if (request.method === 'GET' && request.url === '/companion.js') {
+        sendText(response, 'text/javascript; charset=utf-8', companionScript, "default-src 'none'");
+      } else if (request.method === 'GET' && browserModules.has(request.url ?? '')) {
+        let body: string;
+        try { body = await readFile(new URL((request.url as string).slice('/dist/'.length), DIST), 'utf8'); } catch { throw new HttpError(404); }
+        sendText(response, 'text/javascript; charset=utf-8', body, "default-src 'none'");
       } else if (request.method === 'GET' && request.url === '/trace' && trace) {
         sendText(response, 'text/html; charset=utf-8', tracePage, "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'");
       } else if (request.method === 'GET' && request.url === '/trace.js' && trace) {

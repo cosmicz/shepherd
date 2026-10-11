@@ -1,13 +1,29 @@
-import { AnalysisCancelled, type AnalyzerPort, type Capability } from '../application/analyzer.ts';
+import { AnalysisCancelled, AnalysisTimeout, type AnalyzerPort, type Capability } from '../application/analyzer.ts';
 import { analyzerIds, boundedString, oneOf, parseAssessment, record, routes, type Assessment, type Frame } from '../domain/assessment.ts';
 
 export class HttpAnalyzer implements AnalyzerPort {
-  constructor(private readonly origin: string) {
+  // Above the server's 20 s request deadline, which is above the 16 s routing budget.
+  readonly timeout_ms: number;
+
+  constructor(private readonly origin: string, options: { timeout_ms?: number } = {}) {
     if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin) || new URL(origin).origin !== origin) throw Error('Expected the local Shepherd origin');
+    this.timeout_ms = options.timeout_ms ?? 22_000;
   }
 
+  // Cancellation is typed end to end: the caller's abort is AnalysisCancelled and
+  // this client's deadline is AnalysisTimeout; a raw AbortError never escapes.
   async analyze(frame: Frame, signal: AbortSignal): Promise<Assessment> {
-    const bounded = AbortSignal.any([signal, AbortSignal.timeout(12_000)]);
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), this.timeout_ms);
+    try { return await this.request(frame, AbortSignal.any([signal, deadline.signal])); }
+    catch (error) {
+      if (signal.aborted) throw new AnalysisCancelled();
+      if (deadline.signal.aborted) throw new AnalysisTimeout();
+      throw error;
+    } finally { clearTimeout(timer); }
+  }
+
+  private async request(frame: Frame, bounded: AbortSignal): Promise<Assessment> {
     const session = await fetch(`${this.origin}/api/session`, { signal: bounded, redirect: 'error', credentials: 'omit' });
     if (!session.ok) throw Error('Local session unavailable');
     const token = boundedString(record(await session.json()).token, 64);

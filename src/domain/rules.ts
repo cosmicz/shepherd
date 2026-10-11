@@ -90,24 +90,52 @@ function pressure(text: string, reason: Reason, instruction: RegExp): RuleFindin
   return undefined;
 }
 
-// Lookalike domains: confusable normalization, compared with well-known brands
-// and their official domains. An OCR-derived indicator, never authentication.
-const brands: Record<string, readonly string[]> = {
-  microsoft: ['microsoft.com', 'live.com', 'office.com', 'outlook.com'],
-  apple: ['apple.com', 'icloud.com'],
-  google: ['google.com', 'gmail.com', 'youtube.com'],
-  paypal: ['paypal.com'],
-  amazon: ['amazon.com'],
-  netflix: ['netflix.com'],
-  facebook: ['facebook.com'],
-  chase: ['chase.com'],
-  wellsfargo: ['wellsfargo.com'],
-  bankofamerica: ['bankofamerica.com'],
-  coinbase: ['coinbase.com'],
-  medicare: ['medicare.gov'],
-  irs: ['irs.gov'],
-  usps: ['usps.com'],
-};
+// Weak investment_pressure: an investment offer, an urgency cue
+// and a too-good cue in one window. Multi-word cues tolerate OCR line breaks.
+const offer = /\b(?:shares?|pre-?ipo|crypto\w*|returns?|investments?|allocations?|stake|stocks?)\b/i;
+const investmentUrgency = new RegExp([
+  urgency.source,
+  String.raw`\b\d+\s+hours?\b`,
+  String.raw`\bbefore\s+(?:it|the\s+(?:ipo|launch|listing))\s+(?:lists?|launch(?:es)?|goes\s+public)\b`,
+  String.raw`\blast\s+chance\b`,
+  String.raw`\bexpires?\b`,
+].join('|'), 'i');
+const tooGood = /\b(?:guaranteed|double\s+your|\d+\s?x\b|\d+\s+times|(?:ten|twenty|thirty|fifty|hundred)\s+times|limited\s+(?:allocations?|spots?|seats?)|only\s+\d+\s+(?:\w+\s+){0,2}(?:allocations?|spots?|seats?|shares?))/i;
+
+function investmentPressure(text: string): RuleFinding | undefined {
+  const urgent = matches(investmentUrgency, text);
+  const good = matches(tooGood, text);
+  for (const found of matches(offer, text)) {
+    const hurry = near(urgent, found);
+    const promise = hurry && near(good, found);
+    if (hurry && promise && Math.max(found.end, hurry.end, promise.end) - Math.min(found.index, hurry.index, promise.index) <= WINDOW) {
+      return { reason: 'investment_pressure', evidence: span(text, [found, hurry, promise]) };
+    }
+  }
+  return undefined;
+}
+
+// Weak ai_instruction: on-screen text addressed to an assistant or
+// model, so a page cannot steer the local model to a clean result unseen.
+const aiInstruction = new RegExp([
+  String.raw`\b(?:ignore|disregard|forget)\s+(?:all\s+|any\s+)?(?:the\s+|your\s+)?(?:previous|prior|above|earlier|preceding)\s+(?:instructions?|prompts?|rules|messages?)\b`,
+  String.raw`\byou\s+are\s+(?:now\s+)?(?:an?\s+)?(?:ai|assistant|ai\s+assistant|language\s+model|llm|chatbot)\b`,
+  String.raw`\bclassify\s+this\s+(?:\w+\s+){0,2}as\b`,
+  String.raw`\brespond\s+(?:only\s+)?with\s+(?:no_signal|benign|safe|low|"|')`,
+  String.raw`\bsystem\s+prompt\b`,
+  String.raw`\b(?:note|message)\s+to\s+(?:the\s+)?(?:ai|assistant|model|llm)\b`,
+].join('|'), 'i');
+
+function aiInstructionFinding(text: string): RuleFinding | undefined {
+  const found = matches(aiInstruction, text)[0];
+  return found && { reason: 'ai_instruction', evidence: span(text, [found]) };
+}
+
+// Lookalike domains: confusable normalization compared with well-known brand
+// labels. A brand's own registrable label under any TLD is official. An
+// OCR-derived indicator, never authentication.
+const brands = new Set(['microsoft', 'apple', 'google', 'paypal', 'amazon', 'netflix', 'facebook', 'chase',
+  'wellsfargo', 'bankofamerica', 'coinbase', 'medicare', 'irs', 'usps']);
 const unicodeConfusables: Record<string, string> = {
   'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x', 'і': 'i', 'ј': 'j', 'ѕ': 's', 'ԁ': 'd', 'ɡ': 'g',
   'ο': 'o', 'α': 'a', 'ν': 'v', 'ρ': 'p', 'ι': 'i', 'κ': 'k',
@@ -119,7 +147,42 @@ export function normalizeConfusables(value: string): string {
 }
 
 const hostPattern = /(?<![\p{L}\p{N}@.-])(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?\.)+\p{L}{2,24}(?![\p{L}\p{N}-])/gu;
-const registrable = (host: string) => host.split('.').slice(-2).join('.');
+// Two-level public suffixes, so google.co.uk and amazon.com.au resolve to their brand label.
+const secondLevel = new Set(['co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'com.au', 'net.au', 'org.au', 'co.nz', 'co.jp', 'co.in', 'com.br', 'com.mx', 'co.za', 'com.sg', 'com.hk']);
+function registrable(host: string): { domain: string; label: string } {
+  const labels = host.split('.');
+  const suffix = labels.length > 2 && secondLevel.has(labels.slice(-2).join('.')) ? 3 : 2;
+  const parts = labels.slice(-suffix);
+  return { domain: parts.join('.'), label: parts[0] };
+}
+
+function distance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 1) return 2;
+  let previous = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) row[j] = Math.min(previous[j] + 1, row[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    previous = row;
+  }
+  return previous[b.length];
+}
+
+// This heuristic treats the brand's own registrable label under any TLD as
+// official. Flag only (a) a registrable label that is a confusable or one-edit
+// variant of a brand (brands of 5+ letters for the edit rule), or (b) a brand as
+// a separate hyphen or subdomain token on another registrable domain. Never a
+// substring match (pineapple, appleinsider, firstrepublic).
+function lookalike(host: string): boolean {
+  const lower = host.toLowerCase();
+  const { label } = registrable(lower);
+  if (brands.has(label)) return false;
+  const normalized = normalizeConfusables(label);
+  const tokens = lower.split(/[.-]/).map(normalizeConfusables);
+  return [...brands].some((brand) =>
+    normalized === brand
+    || (brand.length >= 5 && distance(normalized, brand) === 1)
+    || tokens.includes(brand));
+}
 
 export function lookalikeHosts(text: string, options: RuleOptions = {}): string[] {
   const allowed = new Set((options.allowlist ?? []).map((host) => host.toLowerCase()));
@@ -128,10 +191,8 @@ export function lookalikeHosts(text: string, options: RuleOptions = {}): string[
   const hosts = [...new Set([...(fromUrl ? [fromUrl] : []), ...(text.match(hostPattern) ?? [])])];
   return hosts.filter((host) => {
     const lower = host.toLowerCase();
-    if (allowed.has(lower) || allowed.has(registrable(lower))) return false;
-    const normalized = normalizeConfusables(lower);
-    return Object.entries(brands).some(([brand, official]) =>
-      normalized.includes(brand) && !official.includes(registrable(lower)));
+    if (allowed.has(lower) || allowed.has(registrable(lower).domain)) return false;
+    return lookalike(lower);
   });
 }
 
@@ -145,6 +206,10 @@ export function findRules(text: string, options: RuleOptions = {}): RuleFinding[
   if (payment) findings.push(payment);
   const credential = pressure(clauses, 'credential_pressure', credentialInstruction);
   if (credential) findings.push(credential);
+  const investment = investmentPressure(clauses);
+  if (investment) findings.push(investment);
+  const instruction = aiInstructionFinding(text);
+  if (instruction) findings.push(instruction);
   const lookalikes = lookalikeHosts(text, options);
   if (lookalikes.length) findings.push({ reason: 'impersonation', evidence: lookalikes.slice(0, 3).join(' ').slice(0, WINDOW) });
   return findings;

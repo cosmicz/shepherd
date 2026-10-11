@@ -8,3 +8,4 @@ playwright-report/
 private/
 captures/
 .DS_Store
+eval/results-*.json
