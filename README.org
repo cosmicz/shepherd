@@ -1,0 +1,45 @@
+#+title: Shepherd
+#+date: [2026-10-11 Sun]
+
+Shepherd watches an older adult's computer screen on the computer itself,
+notices scam pressure before money moves, says so out loud in plain words,
+and quietly tells a family member.
+
+Built in one day at the Multi Model Hackathon, SF Tech Week 2026.
+
+* How it works
+A router decides, per screen frame, how far to go:
+
+| Tier | What | Cost | Where |
+|------+------+------+-------|
+| 0 | Deterministic rules: high-precision pressure patterns, lookalike domains | free, under 5 ms | on device |
+| 1 | Local language model (Qwen3 8B via llama.cpp) scores the frame text with closed reason codes | free | on device |
+| 2 | Cloud judge (Claude Opus 5 via OpenRouter) on a redacted text excerpt, only for uncertain frames, only under a revocable grant | about half a cent per call, measured | cloud |
+
+What the person hears, and what the family receives, comes from fixed
+templates chosen by closed codes; no model prose reaches speech or messages.
+A trace page shows every routing decision with latency, bytes sent and cost.
+
+Screen text comes from a browser window share with OCR, or from a small
+native macOS helper (ScreenCaptureKit plus Apple Vision) written from Apple
+documentation only.
+
+* Status
+This public repository receives one squashed commit per accepted change set.
+Development history lives on a private trunk. Status markers in the
+submission distinguish measured results from targets.
+
+* Running
+Requires Node 22+, Tesseract with English data, and optionally llama.cpp with
+a local GGUF model and an OpenRouter key for the cloud tier.
+
+#+begin_src sh
+npm ci
+npm run check
+npm start
+#+end_src
+
+* Privacy and consent
+Capture starts only from a user action. Cloud use requires an explicit grant
+that shows exactly what may leave the device and can be revoked at any time.
+No raw frames, screen text or URLs are persisted.
