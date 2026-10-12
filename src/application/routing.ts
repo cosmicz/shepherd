@@ -1,4 +1,4 @@
-// Composite analyzer, contract v2 : rules -> local model ->
+// Composite analyzer, contract contract v2 (child btb): rules -> local model ->
 // cloud judge, driven by the pure policy in domain/policy.ts. Every tier runs
 // under AbortSignal.any([caller, deadline]); the caller's abort is checked first
 // and surfaces as AnalysisCancelled, which yields no Assessment at all.
@@ -7,41 +7,56 @@ import { createHash } from 'node:crypto';
 import {
   analyzeText, checkGrant, makeUnavailable, reasonCodes,
   POLICY_VERSION, PROMPT_VERSION, SCHEMA_VERSION,
-  type Analyzer, type Assessment, type FailureKind, type Frame, type Pattern, type Reason, type RouteStep, type Status,
+  type Analyzer, type Assessment, type EvidenceRegion, type FailureKind, type Frame, type JudgeMeta, type Pattern, type Reason, type RouteStep, type Status, type TextFrame,
 } from '../domain/assessment.ts';
 import { verbatimCue } from '../domain/cue.ts';
-import { decide, type CloudView, type Decision, type Gate, type LocalView, type Risk, type Verdict } from '../domain/policy.ts';
+import { decide, type CloudView, type Decision, type Gate, type LocalView, type OpenConcern, type Risk, type Verdict } from '../domain/policy.ts';
 import { AnalysisCancelled, type AnalyzerPort, type Capability } from './analyzer.ts';
+import { PipelineCapture } from './pipeline-capture.ts';
+import type { PipelineRecord } from '../domain/pipeline.ts';
 
 export { AnalysisCancelled };
 
 export const DEADLINES = { extract_ms: 8000, local_ms: 4000, cloud_ms: 10_000, total_ms: 16_000 } as const;
 export const MAX_RULES_INPUT = 32 * 1024;
 
+// Live-demo knob (contract): SHEPHERD_LOCAL_DEADLINE_MS gives the local model more
+// time on a loaded machine. Unset keeps DEADLINES.local_ms; out-of-range refuses to start.
+export const LOCAL_DEADLINE_BOUNDS = { min_ms: 1000, max_ms: 10_000 } as const;
+export function localDeadline(raw: string | undefined): number {
+  if (raw === undefined || raw === '') return DEADLINES.local_ms;
+  const value = Number(raw);
+  const { min_ms, max_ms } = LOCAL_DEADLINE_BOUNDS;
+  if (!Number.isInteger(value) || value < min_ms || value > max_ms) throw Error(`Invalid SHEPHERD_LOCAL_DEADLINE_MS: an integer from ${min_ms} to ${max_ms} ms`);
+  return value;
+}
+
 // Tier 0 input: OCR for pixel frames, the helper's text for native frames.
 export interface TextExtractor { extract(frame: Frame, signal: AbortSignal): Promise<string> }
 
-// partial: the adapter judged a truncated text; a clean result then is not clean.
+// partial: the adapter judged a truncated text (tea); a clean result then is not clean.
 export interface LocalModelResult { risk: Risk; reasons: Reason[]; cue: string; partial?: boolean }
 export class LocalModelError extends Error {
-  constructor(readonly failure_kind: 'unavailable' | 'malformed') { super(failure_kind); this.name = 'LocalModelError'; }
+  constructor(readonly failure_kind: 'unavailable' | 'malformed' | 'timeout') { super(failure_kind); this.name = 'LocalModelError'; }
 }
-// Implemented by the local adapter (llama-server). Throws LocalModelError; honours the signal.
+// Implemented by tea (llama-server). Throws LocalModelError; honours the signal.
 export interface LocalModelPort {
   readonly model: string;
   assess(text: string, signal: AbortSignal): Promise<unknown>;
   available(): Promise<boolean>;
+  // Optional state text (managed llama-server: starting, warming, ready, unavailable).
+  describe?(): string | undefined;
 }
 
 export interface CloudJudgeRequest {
   excerpt: string; rulesReasons: Reason[]; localRisk: Risk; localReasons: Reason[]; source: Frame['source']; patternHints: Pattern[];
 }
 export type CloudJudgeOutcome =
-  | { ok: true; verdict: Verdict; reasons: Reason[]; pattern: Pattern; rationale: string; bytes_out: number; payload_sha256: string; cost: { known: boolean; usd: number }; replayed?: boolean }
+  | { ok: true; verdict: Verdict; reasons: Reason[]; pattern: Pattern; rationale: string; bytes_out: number; payload_sha256: string; cost: { known: boolean; usd: number }; replayed?: boolean; judge_meta?: JudgeMeta }
   // remote_calls 0: refused before dispatch (the adapter's own re-check), so nothing
-  // left; absent means the body may have left and the attempt counts.
+  // left; absent means the body may have left and the attempt counts (1fx R2).
   | { ok: false; failure_kind: Exclude<FailureKind, 'no_anchor'>; bytes_out: number; payload_sha256?: string; cost: { known: boolean; usd: number }; replayed?: boolean; remote_calls?: 0 | 1 };
-// Implemented over the cloud adapter. redact() is the same redaction judge() applies.
+// Implemented over the gsg adapter. redact() is the same redaction judge() applies.
 export interface CloudJudgePort {
   readonly model: string;
   available(): boolean;
@@ -89,7 +104,7 @@ export class CloudGovernor {
 
 const versions = { policy: POLICY_VERSION, prompt: PROMPT_VERSION, schema: SCHEMA_VERSION };
 const free = { known: true, usd: 0 };
-// Exported for the contract test: pattern other names no familiar category.
+// Exported for the contract test: pattern other names no familiar category (r81).
 export const patternReason: Record<Pattern, Reason> = {
   tech_support: 'support_pressure', celebrity_investment: 'investment_pressure', family_emergency: 'family_emergency',
   government_impersonation: 'impersonation', prize_or_lottery: 'prize_claim', romance: 'payment_pressure',
@@ -98,7 +113,7 @@ export const patternReason: Record<Pattern, Reason> = {
 const messages = {
   concern: 'This screen uses a pressure pattern. Pause and check who is asking before taking action.',
   caution: 'This page has signs of a scam. Pause and check with someone you trust before doing anything.',
-  // Row 12d: a model-only concern outside the named categories.
+  // Row 12d: a model-only concern outside the named categories (r81).
   open: 'This page has signs of pressure to act quickly or share something private. Pause and check with someone you trust before doing anything.',
   no_signal: 'No configured pressure pattern was found. This does not verify who is behind the screen.',
   inconclusive: 'Shepherd could not tell whether this screen is safe to act on. Pause and check with someone you trust.',
@@ -124,14 +139,15 @@ function within<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+const REGION_PADDING = 24;
 
-// Excerpt contract v3: only matched evidence spans
+// Excerpt contract v3 (contract, the team 13:49): only matched evidence spans
 // leave, never windows, neighbours, lines or fuzzy matches. A model quote counts
 // only through verbatimCue (8-160 normalised characters within the model's window).
 // With the quote path on, a quote must still carry a pressure term to be sent.
 const PRESSURE_TERM = /\b(?:pay|send|gift ?cards?|bitcoin|crypto\w*|wire|urgent\w*|immediately|now|account|suspend\w*|arrest\w*|bail|police|invest\w*|shares?|pre-?ipo|guaranteed|verify|password|codes?|call)\b/i;
 
-// Contract v2.1: unknown reason strings are dropped one by one, never
+// Contract v2.1 (r81): unknown reason strings are dropped one by one, never
 // rejected alone. other_concern needs a verbatim cue from the frame text; a
 // medium or high result with no known reason left becomes other_concern when
 // the cue is verbatim, else malformed, so "not enough evidence" stays distinct
@@ -160,8 +176,15 @@ export interface RoutedOptions {
   onAttempt?: (step: RouteStep) => void;
   deadlines?: Partial<Record<keyof typeof DEADLINES, number>>;
   // Model-quote excerpts (SHEPHERD_QUOTE_EXCERPTS=1); off by default: in v0 only
-  // rule-matched spans can form a cloud excerpt.
+  // rule-matched spans can form a cloud excerpt (d3l).
   quoteExcerpts?: boolean;
+  // Row 12d: 'quiet' (default) shows the open caution without speaking; 'spoken' is v2.1.
+  openConcern?: OpenConcern;
+  // Rules only annotate unless true (row 3 off by default; operator 16:58).
+  rulesDecide?: boolean;
+  // u6w: a local-only record of what every tier received and returned, built only
+  // when set (the runtime sets it while the journal is on). Never in the Assessment.
+  onPipeline?: (record: PipelineRecord) => void;
 }
 
 export class RoutedAnalyzer implements AnalyzerPort {
@@ -176,7 +199,10 @@ export class RoutedAnalyzer implements AnalyzerPort {
 
   async capabilities(): Promise<Capability[]> {
     const list: Capability[] = [{ id: 'local-ocr-rules', kind: 'rules', route: 'local', available: true }];
-    if (this.options.local) list.push({ id: 'local-model', kind: 'model', route: 'local-model', model: this.options.local.model, available: await this.options.local.available().catch(() => false) });
+    if (this.options.local) {
+      const limitation = this.options.local.describe?.();
+      list.push({ id: 'local-model', kind: 'model', route: 'local-model', model: this.options.local.model, available: await this.options.local.available().catch(() => false), ...(limitation ? { limitation } : {}) });
+    }
     if (this.options.cloud) list.push({ id: 'cloud-judge', kind: 'model', route: 'cloud', model: this.options.cloud.model, available: this.options.cloud.available() });
     return list;
   }
@@ -190,12 +216,18 @@ export class RoutedAnalyzer implements AnalyzerPort {
     cancelled();
     const context = { frame_id: frame.frame_id, source: frame.source };
     const trace: RouteStep[] = [];
+    const pipe = this.options.onPipeline ? new PipelineCapture(frame, versions, this.now(), started) : undefined;
+    const settle = (decided: Extract<Decision, { kind: 'final' }>, assessment: Assessment): Assessment => {
+      // A failing sink (e.g. the journal) never changes the analysis.
+      if (pipe) try { this.options.onPipeline?.(pipe.finish(decided, assessment)); } catch { /* recorded nowhere */ }
+      return assessment;
+    };
 
     // Tier 0: text, then rules.
     let text: string;
     const extraction = deadline(caller, this.limits.extract_ms);
     try { text = await within(this.options.extractor.extract(frame, extraction.signal), extraction.signal); }
-    catch { extraction.clear(); cancelled(); return { ...makeUnavailable(context), duration_ms: Math.round(elapsed()), policy_row: '1', trace: [{ tier: 'rules', analyzer_id: 'local-ocr-rules', outcome: 'unavailable', duration_ms: Math.round(elapsed()), remote_calls: 0, bytes_out: 0, cost: free, cached: false, versions }] }; }
+    catch { extraction.clear(); cancelled(); return settle({ kind: 'final', row: '1', status: 'unavailable', route: 'local', message: 'default' }, { ...makeUnavailable(context), duration_ms: Math.round(elapsed()), policy_row: '1', trace: [{ tier: 'rules', analyzer_id: 'local-ocr-rules', outcome: 'unavailable', duration_ms: Math.round(elapsed()), remote_calls: 0, bytes_out: 0, cost: free, cached: false, versions }] }); }
     extraction.clear();
     cancelled();
     // Rules are synchronous and not preempted; their bound is structural: input
@@ -205,9 +237,11 @@ export class RoutedAnalyzer implements AnalyzerPort {
     const rulesStarted = performance.now();
     const rules = analyzeText(text, context, 'text' in frame ? { url: frame.url } : {});
     trace.push({ tier: 'rules', analyzer_id: 'local-ocr-rules', outcome: rules.status, duration_ms: Math.round(performance.now() - rulesStarted), remote_calls: 0, bytes_out: 0, cost: free, cached: false, versions });
-    let decision = decide({ rules });
+    pipe?.rules(rulesStarted, (trace.at(-1) as RouteStep).duration_ms, text.length, capped, rules);
+    let decision = decide({ open_concern: this.options.openConcern, rules_decide: this.options.rulesDecide, rules });
     let local: LocalView | undefined;
     let localResult: LocalModelResult | undefined;
+    let localRaw: unknown;
 
     // Tier 1: local model.
     if (decision.kind === 'call-local') {
@@ -216,7 +250,8 @@ export class RoutedAnalyzer implements AnalyzerPort {
       const { signal, clear } = deadline(caller, Math.min(this.limits.local_ms, this.limits.total_ms - elapsed()));
       try {
         if (!this.options.local) throw new LocalModelError('unavailable');
-        localResult = parseLocal(await within(this.options.local.assess(text, signal), signal), text);
+        localRaw = await within(this.options.local.assess(text, signal), signal);
+        localResult = parseLocal(localRaw, text);
         local = { kind: 'result', risk: localResult.risk, reasons: localResult.reasons };
       } catch (error) {
         cancelled();
@@ -224,7 +259,10 @@ export class RoutedAnalyzer implements AnalyzerPort {
       } finally { clear(); }
       const outcome: RouteStep['outcome'] = local.kind === 'failed' ? 'failed' : local.risk === 'low' ? 'no_signal' : local.risk === 'high' ? 'concern' : 'inconclusive';
       trace.push({ tier: 'local-model', analyzer_id: 'local-model', outcome, ...(local.kind === 'failed' ? { failure_kind: local.failure_kind } : {}), duration_ms: Math.round(performance.now() - localStarted), remote_calls: 0, bytes_out: 0, cost: free, cached: false, versions });
-      decision = decide({ rules, local, gate: this.gate(frame) });
+      pipe?.local(localStarted, (trace.at(-1) as RouteStep).duration_ms, this.options.local?.model ?? 'unknown', text, localRaw, localResult, local.kind === 'failed' ? local.failure_kind : undefined);
+      const gate = this.gate(frame);
+      pipe?.gate(gate);
+      decision = decide({ open_concern: this.options.openConcern, rules_decide: this.options.rulesDecide, rules, local, gate });
     }
 
     // Tier 2: cloud judge, behind the gate re-checked immediately before dispatch.
@@ -234,7 +272,9 @@ export class RoutedAnalyzer implements AnalyzerPort {
     if (decision.kind === 'call-cloud') {
       cancelled();
       excerpt = this.excerpt(text, rules, localResult?.cue, this.options.cloud as CloudJudgePort);
-      decision = decide({ rules, local, gate: { ...this.gate(frame), anchor: excerpt !== undefined } });
+      const gate = { ...this.gate(frame), anchor: excerpt !== undefined };
+      pipe?.gate(gate);
+      decision = decide({ open_concern: this.options.openConcern, rules_decide: this.options.rulesDecide, rules, local, gate });
     }
     if (decision.kind === 'call-cloud') {
       const port = this.options.cloud as CloudJudgePort;
@@ -248,6 +288,8 @@ export class RoutedAnalyzer implements AnalyzerPort {
       if (hit) {
         judged = hit;
         trace.push({ tier: 'cloud', analyzer_id: 'cloud-judge', outcome: 'concern', duration_ms: 0, remote_calls: 0, bytes_out: 0, payload_sha256: hit.payload_sha256, cost: free, cached: true, versions, excerpt_source: excerpt?.source });
+        pipe?.cloud(cloudStarted, 0, port.model, true, { excerpt: port.redact(request.excerpt), excerpt_source: (excerpt as { source: 'rules' | 'quote' }).source, payload_sha256: hit.payload_sha256, bytes_out: 0 },
+          { verdict: hit.verdict, reasons: [...hit.reasons], pattern: hit.pattern, rationale: { model_text: hit.rationale }, dispatched: false, cost: free });
       } else {
         const { signal, clear } = deadline(caller, Math.min(this.limits.cloud_ms, this.limits.total_ms - elapsed()));
         let outcome: CloudJudgeOutcome;
@@ -259,16 +301,18 @@ export class RoutedAnalyzer implements AnalyzerPort {
           outcome = { ok: false, failure_kind: caller.aborted || !signal.aborted ? 'network' : 'timeout', bytes_out, payload_sha256, cost: { known: false, usd: 0 } };
         } finally { clear(); }
         if (!outcome.ok && outcome.remote_calls === 0) {
-          // Refused before dispatch: the gate closed under us. Nothing was sent,
+          // Refused before dispatch (1fx R2): the gate closed under us. Nothing was sent,
           // budgeted or traced; settle as the closed-gate row with a skipped step. Any
           // other pre-dispatch refusal (e.g. a request that could not be built) reads as
           // provider unavailable.
           cancelled();
+          pipe?.cloud(cloudStarted, Math.round(performance.now() - cloudStarted), port.model, false, { excerpt: port.redact(request.excerpt), excerpt_source: (excerpt as { source: 'rules' | 'quote' }).source, bytes_out: 0 },
+            { failure_kind: outcome.failure_kind, dispatched: false, cost: outcome.cost });
           const closedBy = outcome.failure_kind === 'no_consent' ? { grant: false } : outcome.failure_kind === 'budget' ? { budget: false } : { provider: false };
-          decision = decide({ rules, local, gate: { grant: true, provider: true, budget: true, ...closedBy } });
+          decision = decide({ open_concern: this.options.openConcern, rules_decide: this.options.rulesDecide, rules, local, gate: { grant: true, provider: true, budget: true, ...closedBy } });
           if (decision.kind !== 'final') throw Error('Routing did not settle');
           if (decision.skipped) trace.push({ tier: 'cloud', analyzer_id: 'cloud-judge', outcome: 'skipped', failure_kind: decision.skipped, duration_ms: 0, remote_calls: 0, bytes_out: 0, cost: free, cached: false, versions });
-          return this.assessment(frame, decision, rules, localResult, undefined, trace, Math.round(elapsed()), capped);
+          return settle(decision, this.assessment(frame, decision, rules, localResult, undefined, trace, Math.round(elapsed()), capped));
         }
         // A replayed verdict (demo safety net) is local: no dispatch, nothing to budget.
         if (!outcome.replayed) this.governor.record(this.now(), outcome.cost);
@@ -282,14 +326,18 @@ export class RoutedAnalyzer implements AnalyzerPort {
           tier: 'cloud', analyzer_id: 'cloud-judge', outcome: outcome.ok ? 'concern' : 'failed', ...(outcome.ok ? {} : { failure_kind: outcome.failure_kind }),
           duration_ms: Math.round(performance.now() - cloudStarted), remote_calls: outcome.replayed ? 0 : 1, bytes_out: outcome.replayed ? 0 : outcome.bytes_out,
           ...(outcome.payload_sha256 ? { payload_sha256: outcome.payload_sha256 } : {}), cost: outcome.cost, cached: !!outcome.replayed, versions, excerpt_source: excerpt?.source,
-          ...(outcome.replayed ? { replayed: true } : {}),
+          ...(outcome.replayed ? { replayed: true } : {}), ...(outcome.ok && outcome.judge_meta ? { judge_meta: outcome.judge_meta } : {}),
         });
         if (!outcome.replayed) this.options.onAttempt?.(trace.at(-1) as RouteStep);
+        pipe?.cloud(cloudStarted, (trace.at(-1) as RouteStep).duration_ms, port.model, !!outcome.replayed,
+          { excerpt: port.redact(request.excerpt), excerpt_source: (excerpt as { source: 'rules' | 'quote' }).source, ...(outcome.payload_sha256 ? { payload_sha256: outcome.payload_sha256 } : {}), bytes_out: outcome.replayed ? 0 : outcome.bytes_out },
+          outcome.ok ? { verdict: outcome.verdict, reasons: [...outcome.reasons], pattern: outcome.pattern, rationale: { model_text: outcome.rationale }, dispatched: !outcome.replayed, cost: outcome.cost }
+            : { failure_kind: outcome.failure_kind, dispatched: true, cost: outcome.cost });
       }
       // A dispatched attempt never fails for consent or budget (both are checked before
       // dispatch), so its failure kind is a transport one.
       cloud = judged ? { kind: 'verdict', verdict: judged.verdict, reasons: judged.reasons, pattern: judged.pattern } : { kind: 'failed', failure_kind: (trace.at(-1) as RouteStep).failure_kind as Exclude<FailureKind, 'no_consent' | 'budget' | 'no_anchor'> };
-      decision = decide({ rules, local, gate: { grant: true, provider: true, budget: true }, cloud });
+      decision = decide({ open_concern: this.options.openConcern, rules_decide: this.options.rulesDecide, rules, local, gate: { grant: true, provider: true, budget: true }, cloud });
       // The cloud step's outcome is the status it produced.
       const last = trace.at(-1) as RouteStep;
       if (judged && decision.kind === 'final') last.outcome = decision.status;
@@ -298,7 +346,7 @@ export class RoutedAnalyzer implements AnalyzerPort {
     cancelled();
     if (decision.kind !== 'final') throw Error('Routing did not settle');
     if (decision.skipped) trace.push({ tier: 'cloud', analyzer_id: 'cloud-judge', outcome: 'skipped', failure_kind: decision.skipped, duration_ms: 0, remote_calls: 0, bytes_out: 0, cost: free, cached: false, versions });
-    return this.assessment(frame, decision, rules, localResult, judged, trace, Math.round(elapsed()), capped);
+    return settle(decision, this.assessment(frame, decision, rules, localResult, judged, trace, Math.round(elapsed()), capped));
   }
 
   private gate(frame: Frame): Gate {
@@ -327,7 +375,7 @@ export class RoutedAnalyzer implements AnalyzerPort {
   private assessment(frame: Frame, decision: Extract<Decision, { kind: 'final' }>, rules: Assessment, local: LocalModelResult | undefined,
     judged: Extract<CloudJudgeOutcome, { ok: true }> | undefined, trace: RouteStep[], duration_ms: number, capped = false): Assessment {
     let status: Status = decision.status;
-    // A clean result on truncated, capped or partially read text is not clean.
+    // A clean result on truncated, capped or partially read text is not clean (the team 13:16, tea partial).
     if (status === 'no_signal' && (capped || local?.partial || ('text' in frame && frame.truncated))) status = 'inconclusive';
     let reasons: Reason[] = [];
     if (status === 'concern') {
@@ -340,11 +388,50 @@ export class RoutedAnalyzer implements AnalyzerPort {
     const message = decision.row === '12d' ? messages.open
       : status === 'concern' ? (decision.message === 'caution' ? messages.caution : messages.concern)
       : status === 'inconclusive' && decision.message === 'caution' ? messages.caution : messages[status];
+    const regions = status === 'concern' ? evidenceRegions(frame, rules.evidence, local?.cue) : [];
+    const countedTrace = trace.slice(0, 3).map((step) => regions.length ? { ...step, regions: regions.length } : step);
     return {
       frame_id: frame.frame_id, source: frame.source, status, reasons,
       evidence: status === 'no_signal' ? [] : rules.evidence, message, analyzer, media_origin: 'not_assessed',
-      route: decision.route, duration_ms, trace: trace.slice(0, 3), policy_row: decision.row as Assessment['policy_row'],
+      route: decision.route, duration_ms, trace: countedTrace, policy_row: decision.row as Assessment['policy_row'],
+      ...(regions.length ? { evidence_regions: regions.length } : {}),
       ...(judged ? { pattern: judged.pattern, verdict: judged.verdict } : {}),
     };
   }
+
+}
+
+// Rule and local-model text is window-only. Display OCR is consulted only to
+// locate the same matched span for an on-device journal crop; it never forms
+// an excerpt or alters routing.
+export function evidenceRegions(frame: Frame, ruleEvidence: string[], localCue: string | undefined): EvidenceRegion[] {
+  if (!('text' in frame) || !frame.display_lines?.length) return [];
+  const spans: Array<{ text: string; source: EvidenceRegion['source'] }> = [
+    ...ruleEvidence.map((text) => ({ text, source: 'rules' as const })),
+    ...(localCue ? [{ text: localCue, source: 'local' as const }] : []),
+  ];
+  const regions: EvidenceRegion[] = [];
+  for (const span of spans) {
+    const region = regionForSpan(frame, span.text, span.source);
+    if (region && !regions.some((item) => item.x === region.x && item.y === region.y && item.w === region.w && item.h === region.h && item.source === region.source)) {
+      regions.push(region);
+    }
+    if (regions.length === 3) break;
+  }
+  return regions;
+}
+
+function regionForSpan(frame: TextFrame, span: string, source: EvidenceRegion['source']): EvidenceRegion | undefined {
+  const target = span.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (target.length < 4) return undefined;
+  const lines = (frame.display_lines ?? []).filter((line) => {
+    const text = line.text.replace(/\s+/g, ' ').trim().toLowerCase();
+    return text.length >= 4 && (target.includes(text) || text.includes(target));
+  });
+  if (!lines.length) return undefined;
+  const left = Math.max(0, Math.min(...lines.map((line) => line.x)) - REGION_PADDING);
+  const top = Math.max(0, Math.min(...lines.map((line) => line.y)) - REGION_PADDING);
+  const right = Math.max(...lines.map((line) => line.x + line.w)) + REGION_PADDING;
+  const bottom = Math.max(...lines.map((line) => line.y + line.h)) + REGION_PADDING;
+  return { x: left, y: top, w: right - left, h: bottom - top, source };
 }

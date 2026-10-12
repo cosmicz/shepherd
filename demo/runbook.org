@@ -6,7 +6,7 @@ and Messages permissions must be verified in the actual presenting app.
 Script: [[file:script.org][script.org]]. Measured results: [[file:../eval/README.org][eval/README.org]].
 
 * 0. Before rehearsal
-Run ~npm run check~ and ~node demo/check.mjs~. Install the prerequisites listed
+Use focused checks for changed components before rehearsal. Install the prerequisites listed
 in [[file:../README.org][README.org]]. Keep the OpenRouter key in an untracked ~.env~ file.
 Verify Chrome's Screen Recording permission and Messages sign-in manually.
 No automated test establishes permission or family-message delivery.
@@ -18,17 +18,19 @@ llama-server -m /path/to/qwen3-8b-q4_k_m.gguf --host 127.0.0.1 --port 8080 -c 81
 #+end_src
 Check ~curl -s http://127.0.0.1:8080/health~ for ~{"status":"ok"}~.
 Rehearse one analysis before the presentation; startup and cold inference can
-take longer. Shepherd does not start this server for you in this snapshot.
+take longer. Alternatively set ~SHEPHERD_LOCAL_MODEL~ to the GGUF path in tab B
+and the runtime will start a managed server automatically.
 
 * 2. Terminal tab B — runtime
 #+begin_src sh
 SHEPHERD_FAMILY_HANDLE='<phone or Apple ID that receives the alert>' \
 SHEPHERD_PERSON=June SHEPHERD_FAMILY_NAME=Danny \
+SHEPHERD_CLOUD_JUDGE=decisions SHEPHERD_DECISION_MODEL=cloudflare/clef-flash \
 SHEPHERD_CLOUD_RECORD=demo/cloud-replay.json \
 node --env-file=.env dist/server/main.js
 #+end_src
 Open ~http://127.0.0.1:4317/companion~ and ~/trace~. Check the startup banner:
-rules on, local model configured, cloud configured, quote excerpts off.
+rules annotate, local model configured, cloud configured, quote excerpts off.
 Leave ~SHEPHERD_QUOTE_EXCERPTS~ unset: by default only rule-matched spans can
 leave the machine. Recording saves closed verdict codes keyed by excerpt hash,
 not screenshot or model text.
@@ -54,7 +56,9 @@ Keep companion and trace in other windows.
    witnessed on the receiving device.
 
 * 5. Walk the pages
-These are observed outcomes in the final eight-page run, not guarantees.
+The following table is historical: the eight-page Opus run at public ~32ffba4~,
+with the earlier rules-decide policy. The current default uses Clef Flash and
+rules annotate only. Narrate the current trace, not the old row numbers.
 | Page | Observed routed result |
 |------+------------------------|
 | weather, news | no_signal, local model, row 12c |
@@ -76,6 +80,7 @@ USD 0.05989). Use the actual live trace if its outcome differs.
 If OpenRouter is unreachable, stop tab B and restart:
 #+begin_src sh
 SHEPHERD_CLOUD_REPLAY=demo/cloud-replay.json \
+SHEPHERD_CLOUD_JUDGE=decisions SHEPHERD_DECISION_MODEL=cloudflare/clef-flash \
 SHEPHERD_FAMILY_HANDLE='<same handle>' \
 SHEPHERD_PERSON=June SHEPHERD_FAMILY_NAME=Danny \
 node dist/server/main.js
@@ -84,13 +89,14 @@ Start capture and consent again. Say explicitly: “This is the verdict recorded
 in rehearsal, replayed locally.” Trace marks REPLAYED with a separate counter
 and zero remote calls, bytes and cost. A missing entry is unavailable.
 A recording made from fixtures may not match a live screenshot's excerpt hash.
+Use the same judge/model configuration as the rehearsal recording.
 
 Without a key or replay, cloud is off. Uncertain cases remain inconclusive;
 do not present a recorded verdict as live.
 
 * 7. Other fallbacks
-- Local server unavailable: trace shows a failed local tier. The narrow support
-  popup rule still works; other uncertain cases are inconclusive.
+- Local server unavailable: trace shows a failed local tier and the policy
+  returns an explicit inconclusive outcome where model confirmation is needed.
 - Capture permission failure: show the synthetic PNGs as labelled examples.
 - Family alert failure: the companion surfaces the failure. Check the configured
   handle, Messages permissions and recipient device; never claim unwitnessed delivery.

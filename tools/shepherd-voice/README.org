@@ -1,0 +1,44 @@
+#+title: Shepherd voice helper
+
+An observation source for the phone-and-video impersonation case: it listens
+to the Mac's own audio output (default; ScreenCaptureKit audio capture with no
+video output and Shepherd's own sounds excluded, covered by the Screen and
+System Audio Recording permission) or, with ~--input microphone~, to the
+default input device, and prints recognised text as bounded JSON segments
+tagged with their origin. Recognition runs on this Mac only. Every request sets
+~requiresOnDeviceRecognition~, and a locale without an on-device model reports
+~{"kind":"unavailable","reason":"no_on_device_model"}~ rather than using
+Apple's servers. Audio stays in memory and no file is written. The helper uses
+only Foundation, Speech, AVFoundation, ScreenCaptureKit and CoreMedia.
+
+* Build
+#+begin_src sh
+mkdir -p tools/shepherd-voice/build
+swiftc -O tools/shepherd-voice/main.swift -o tools/shepherd-voice/build/shepherd-voice
+#+end_src
+
+Do not run it from tmux or any unattended shell. The first run asks for
+Speech Recognition permission (and Microphone permission with ~--input
+microphone~), and those prompts need the operator's go (Terminal.app). The test suite only inspects and type-checks the
+source; it never starts the helper.
+
+* Output
+One JSON object per line:
+- ~{"kind":"listening","locale":"en-US","origin":"system"|"microphone"}~
+- ~{"kind":"segment","t_start":"…Z","t_end":"…Z","text":"…","confidence":0.0-1.0,"reason":"change"|"interval","origin":"system"|"microphone"}~.
+  A segment closes after about two seconds without new words (~change~) or at
+  30 seconds or 400 characters (~interval~). Confidence is the mean of the
+  recogniser's word confidences: uncalibrated, and 0 where the recogniser
+  reports none.
+- ~{"kind":"unavailable","reason":…}~ with ~no_on_device_model~,
+  ~recognizer_unavailable~, ~speech_denied~, ~microphone_unavailable~,
+  ~system_audio_unavailable~, ~system_audio_denied~ or ~usage~, then exit 2.
+- ~{"kind":"stopped"}~ after SIGTERM: words heard so far are published, capture
+  stops and the process exits 0.
+
+~--locale xx-YY~ selects the recognition locale (default en-US); ~--input
+system|microphone~ selects the audio (default system).
+
+With system audio it hears what the Mac plays: a call or video in any app, not
+the person's own voice. With the microphone it hears the room. It never
+identifies who is speaking.

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { decide, type Decision, type LocalView, type PolicyInput } from '../src/domain/policy.ts';
 
-// One case per row of the contract v2 routing table. Row 19 (abort)
+// One case per row of the contract contract v2 routing table. Row 19 (abort)
 // is the composite's AnalysisCancelled path and is tested there.
 const open = { grant: true, provider: true, budget: true };
 const strong = { status: 'concern', reasons: ['support_pressure'] } as const;
@@ -16,7 +16,8 @@ const verdict = (value: 'scam' | 'suspicious' | 'benign' | 'unclear') => ({ kind
 const rows: Array<[string, PolicyInput, Decision]> = [
   ['1', { rules: { status: 'unavailable', reasons: [] } }, { kind: 'final', row: '1', status: 'unavailable', route: 'local', message: 'default' }],
   ['2', { rules: { status: 'inconclusive', reasons: [] } }, { kind: 'final', row: '2', status: 'inconclusive', route: 'local', message: 'default' }],
-  ['3', { rules: strong }, { kind: 'final', row: '3', status: 'concern', route: 'local', message: 'default' }],
+  ['3', { rules: strong, rules_decide: true }, { kind: 'final', row: '3', status: 'concern', route: 'local', message: 'default' }],
+  ['3 off: rules annotate only, a strong reason is weak and the local model is consulted', { rules: strong }, { kind: 'call-local' }],
   ['local first (weak)', { rules: weak }, { kind: 'call-local' }],
   ['local first (no_signal)', { rules: none }, { kind: 'call-local' }],
   ['4', { rules: weak, local: failedLocal, gate: open }, { kind: 'call-cloud', row: '4' }],

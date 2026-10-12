@@ -1,4 +1,4 @@
-// Routing policy, contract v2.1 total routing table (rows 1-18, 12d).
+// Routing policy, contract contract v2.1 total routing table (rows 1-18, 12d).
 // Pure: the composite analyzer feeds it what each tier returned and does what it
 // says. Row 19 (abort at any boundary) is the composite's AnalysisCancelled path.
 import type { FailureKind, Pattern, Reason, Route, Status } from './assessment.ts';
@@ -17,15 +17,22 @@ export type LocalView =
   | { kind: 'failed'; failure_kind: 'unavailable' | 'malformed' | 'timeout' };
 // G and P and B, evaluated by the caller immediately before dispatch.
 // A missing gate means no consent.
-// anchor: the excerpt is anchored to matched text; false means nothing
+// anchor: the excerpt is anchored to matched text (contract); false means nothing
 // may be sent, so the cloud step is skipped with failure_kind no_anchor.
 export interface Gate { grant: boolean; provider: boolean; budget: boolean; anchor?: boolean }
 export type CloudView =
   | { kind: 'verdict'; verdict: Verdict; reasons: readonly Reason[]; pattern: Pattern }
   | { kind: 'failed'; failure_kind: Exclude<FailureKind, 'no_consent' | 'budget' | 'no_anchor'> };
-export interface PolicyInput { rules: RulesView; local?: LocalView; gate?: Gate; cloud?: CloudView }
+// Row 12d (a lone local-model other_concern) is shown but not spoken unless
+// open_concern is 'spoken' (v2.1 behaviour): in the 16:00 live run a lone local
+// model rated innocuous pages high and the companion spoke every minute (the team).
+export type OpenConcern = 'spoken' | 'quiet';
+// Operator 16:58: deterministic rules only annotate, never decide. Row 3 (a strong
+// rule settling a concern without any model) exists only with rules_decide true;
+// otherwise a strong reason is weak and the models decide.
+export interface PolicyInput { rules: RulesView; local?: LocalView; gate?: Gate; cloud?: CloudView; open_concern?: OpenConcern; rules_decide?: boolean }
 
-// Which fixed local template the outcome uses: 'evidence' shows the rules
+// Which fixed local template (ztq) the outcome uses: 'evidence' shows the rules
 // evidence, 'caution' the cautionary text, 'scam' the scam text.
 export type MessageKind = 'default' | 'evidence' | 'caution' | 'scam';
 export type Decision =
@@ -49,7 +56,7 @@ export function decide(input: PolicyInput): Decision {
   if (rules.status === 'unavailable') return final('1', 'unavailable', 'local');
   if (rules.status === 'inconclusive') return final('2', 'inconclusive', 'local');
   const concern = rules.status === 'concern';
-  if (concern && rules.reasons.some((reason) => strongReasons.includes(reason))) return final('3', 'concern', 'local');
+  if (input.rules_decide === true && concern && rules.reasons.some((reason) => strongReasons.includes(reason))) return final('3', 'concern', 'local');
   if (!local) return { kind: 'call-local' };
 
   // Which tier-2 row applies, and the row that replaces it when the gate is closed.
@@ -66,11 +73,12 @@ export function decide(input: PolicyInput): Decision {
   } else {
     if (local.risk === 'low') return final('12c', 'no_signal', 'local-model');
     cloudRow = '12';
-    // Row 12d (v2.1): when nothing may be sent, a local high concern outside
-    // the named categories (other_concern, cue already verified) is a spoken
-    // caution; family is not alerted without rules or cloud corroboration.
+    // Row 12d (v2.1, r81): when nothing may be sent, a local high concern outside
+    // the named categories (other_concern, cue already verified) is a caution:
+    // inconclusive and shown by default (quiet), concern and spoken only with
+    // open_concern 'spoken'. Family is never alerted without corroboration.
     fallback = local.risk === 'high' && local.reasons.includes('other_concern')
-      ? final('12d', 'concern', 'local-model', 'caution') : final('12b', 'inconclusive', 'local-model');
+      ? final('12d', input.open_concern === 'spoken' ? 'concern' : 'inconclusive', 'local-model', 'caution') : final('12b', 'inconclusive', 'local-model');
   }
 
   const skipped = closed(gate);

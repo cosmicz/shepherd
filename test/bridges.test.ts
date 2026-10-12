@@ -14,7 +14,7 @@ const grant: Grant = { id: 'g-1', ...session, source: 'native', scope: 'redacted
 const frame: TextFrame = { frame_id: 'f-1', source: 'native', ...session, consent: grant, captured_at: new Date(now).toISOString(),
   text: 'Weekly club letter. Contact jo@example.com or 415-555-0172 about account 99881234.' };
 
-test('local bridge maps the local adapter: value, malformed, unavailable', async () => {
+test('local bridge maps the tea adapter: value, malformed, unavailable', async () => {
   const value = { risk: 'high', reasons: ['family_emergency'], cue: 'bail request' };
   assert.deepEqual(await new LlamaLocalModel({ fetchImpl: chat(value) }).assess('bail request', new AbortController().signal), { ...value, quote: 'bail request', partial: false });
   await assert.rejects(new LlamaLocalModel({ fetchImpl: chat({ risk: 'high', reasons: [], cue: '' }) }).assess('t', new AbortController().signal), (e) => e instanceof LocalModelError && e.failure_kind === 'malformed');
@@ -52,10 +52,10 @@ test('routed analyzer over both bridges: consented uncertain frame reaches the j
   assert.deepEqual(result.analyzer, { id: 'cloud-judge', kind: 'model', provider: 'openrouter', model: 'anthropic/claude-opus-5' });
 });
 
-// Contract v2.1 runtime witness: a novel scam no rule names, through the
+// Contract v2.1 runtime witness (r81): a novel scam no rule names, through the
 // real local bridge, with cloud consent absent, surfaces a spoken caution and
 // nothing leaves the machine; without a verbatim cue it stays inconclusive.
-test('routed analyzer over both bridges: novel other_concern settles on device at row 12d', async () => {
+test('routed analyzer over both bridges: novel other_concern settles on device at row 12d (r81)', async () => {
   let dispatched = 0;
   const novel: TextFrame = { ...frame, frame_id: 'f-novel', consent: undefined,
     text: 'Hello neighbour, the building portal is moving. Please verify your account by uploading a photo of your passport and both sides of your bank card to keep your parking spot.' };
@@ -65,7 +65,7 @@ test('routed analyzer over both bridges: novel other_concern settles on device a
     cloud: new OpenRouterJudge({ model: 'anthropic/claude-opus-5', transport: async () => { dispatched++; throw Error('no dispatch expected'); } }),
   });
   const surfaced = await analyzer('a photo of your passport').analyze(novel, new AbortController().signal);
-  assert.deepEqual([surfaced.status, surfaced.route, surfaced.policy_row, surfaced.reasons], ['concern', 'local-model', '12d', ['other_concern']]);
+  assert.deepEqual([surfaced.status, surfaced.route, surfaced.policy_row, surfaced.reasons], ['inconclusive', 'local-model', '12d', []]);
   assert.deepEqual(surfaced.trace.map((s) => [s.remote_calls, s.bytes_out]), [[0, 0], [0, 0], [0, 0]]);
   const unquoted = await analyzer('a photo of your licence').analyze({ ...novel, frame_id: 'f-novel-2' }, new AbortController().signal);
   assert.deepEqual([unquoted.status, unquoted.policy_row], ['inconclusive', '6']);

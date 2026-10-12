@@ -1,0 +1,52 @@
+#+title: Image-rich offline demo scenarios
+
+These three fictional pages are separate from the frozen eight-page evaluation.
+They are not copies of live listed sites and their classifier outcomes have not
+been measured. No listed domain is contacted. Simulated addresses are plain text.
+Images reuse our existing synthetic fixture screenshots, not upstream site content.
+
+* Start and open
+Restart the demo server to load the additional page manifest. With the existing
+runtime configuration, also set these variables before starting the runtime:
+
+#+begin_src sh
+export SHEPHERD_THREAT_STORE="$HOME/Library/Application Support/Shepherd/threat-intel"
+export SHEPHERD_THREAT_OCR=1
+node demo/serve.mjs
+# In another terminal, after the runtime is ready:
+SHEPHERD_EXTRA_DEMO_TABS=1 demo/open-demo.sh
+#+end_src
+
+Cloud classification still needs the ordinary live grant and budget.
+
+* Additional tabs
+- http://account-review.localhost:8099/ — image-based bank phishing notice;
+  simulated a-facebook.com is present in the downloaded phishing snapshot.
+- http://device-update.localhost:8099/ — inert remote-access request with a
+  security-warning screenshot; simulated a--e.com is in the malware snapshot.
+  The screenshot supplies support-pressure evidence for model review.
+- http://community.localhost:8099/ — ordinary walking-group notice with a
+  weather image; a benign control, not a guarantee of a no-signal model result.
+
+Use browser tab/window capture for the simulated-address beat. Native URL
+metadata takes priority and correctly reports the actual *.localhost URL, so a
+native metadata frame need not match the listed text shown inside the page.
+
+* Narration and provenance
+The trace chip says Listed plus feed category and source. An OCR mention is
+explicitly an unverified URL mention, not the destination the browser visited.
+The opt-in OCR matcher reads only the first eight lines / 2048 characters; if
+browser chrome pushes the simulated address below that boundary, no tag appears.
+Do not claim a match that the observed frame did not produce.
+
+The offline list signal never changes classification, routing or cloud consent.
+Expand a trace row for source/revision/freshness, the actual tier outcomes,
+local-model risk/reasons/quoted cue and bounded cloud-authored rationale when
+available. These are model outputs, not verified facts or hidden reasoning.
+Local-high may settle without cloud; model disagreement/uncertainty may escalate
+only under the existing policy and permission. Replays remain labelled.
+
+The demonstration used a separately downloaded snapshot (not shipped in this
+repository) from 2026-10-11 14:22 PDT, upstream revision
+ee3bdbaddf49c756cf3340bb2e6a9dee5282d1c6. Malware: 2,656,387 accepted;
+phishing: 190,215 accepted. One upstream, not independent corroboration.

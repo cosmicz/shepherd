@@ -5,11 +5,11 @@ import { RoutedAnalyzer, type LocalModelPort } from '../src/application/routing.
 import type { Grant, TextFrame } from '../src/domain/assessment.ts';
 import { GrantRegistry } from '../src/server/consent.ts';
 
-// Contract: the cloud excerpt is always anchored (rules spans, else the local
+// contract: the cloud excerpt is always anchored (rules spans, else the local
 // cue located in the text); with no anchor nothing is dispatched.
 const now = Date.now();
-const session = { session_id: 's-excerpt', generation: 1 };
-const grant: Grant = { id: 'g-excerpt', ...session, source: 'native', scope: 'redacted-text', max_bytes: 2048, version: 1, granted_at: new Date(now - 60_000).toISOString(), expires_at: new Date(now + 3600_000).toISOString() };
+const session = { session_id: 's-by2', generation: 1 };
+const grant: Grant = { id: 'g-by2', ...session, source: 'native', scope: 'redacted-text', max_bytes: 2048, version: 1, granted_at: new Date(now - 60_000).toISOString(), expires_at: new Date(now + 3600_000).toISOString() };
 const witness = 'Inbox (3) - jdoe - Mail  mail.example.com/u/0/inbox?session=Ab9xQz7  Dr. Alice Nguyen re: biopsy results  Grandma we need to talk privately';
 const frame = (text: string): TextFrame => ({ frame_id: `f-${Math.random()}`, source: 'native', ...session, consent: grant, captured_at: new Date(now).toISOString(), text });
 
@@ -73,7 +73,7 @@ test('a paraphrased or near-verbatim cue without a rules span does not dispatch'
   }
 });
 
-// the quote path is off by default; when on, it needs a pressure term.
+// d3l: the quote path is off by default; when on, it needs a pressure term.
 test('quote path off (default): no rules span means no dispatch, whatever the model quotes', async () => {
   for (const [text, cue] of [[witness, 'Dr. Alice Nguyen re: biopsy results'], ['Grandma please send the gift card codes now, love Danny', 'please send the gift card codes now']]) {
     // The second quote carries a pressure term: only the default-off switch stops it.
@@ -111,6 +111,17 @@ test('the screen head is never an excerpt, even for a long unanchored screen', a
   const r = rig('');
   await r.analyzer.analyze(frame(`${witness}\n${'Quarterly statement line item\n'.repeat(40)}`), new AbortController().signal);
   assert.equal(r.bodies.length, 0);
+});
+
+test('a span found only in display_text never anchors a cloud excerpt', async () => {
+  const r = rig('garden club invitation', true);
+  const result = await r.analyzer.analyze({
+    ...frame('Garden club invitation for Saturday.'),
+    display_text: 'Your computer is infected. Call support immediately.',
+    display_lines: [{ text: 'Your computer is infected. Call support immediately.', x: 10, y: 10, w: 300, h: 20 }],
+  }, new AbortController().signal);
+  assert.equal(r.bodies.length, 0);
+  assert.deepEqual([result.route, result.trace.at(-1)?.failure_kind, result.trace.at(-1)?.remote_calls], ['local-model', 'no_anchor', 0]);
 });
 
 test('the companion scope statement names model quotes only when the quote path is on', async () => {

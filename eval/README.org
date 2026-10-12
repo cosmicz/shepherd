@@ -16,8 +16,20 @@ A paid live comparison must be deliberately requested:
 node --env-file=.env --import tsx eval/routing-eval.ts --live-cloud --cap 40
 #+end_src
 
-* Final comparison — measured 2026-10-11 15:05 PDT
+* Independent Clef Flash end-to-end observation — 2026-10-11 17:06 PDT
+Receipt: [[file:receipts/2026-10-11-decisions-judge-e2e.json][single bank-fixture runtime trace]].
+The companion watched the synthetic bank-verification page. The local tier
+returned no_signal; Clef Flash returned suspicious (row 14, concern). This was
+the first uncached request: 810 outbound bytes, 447 ms for the cloud step and
+USD 0.000010146 reported cost. Class distribution: benign 0.0985, suspicious
+0.8248, unknown 0.0767; provider confidence 0.7372, all uncalibrated. The original
+measurement fields are unchanged; private recording attribution is redacted.
+This is one observed route, not an eight-fixture evaluation of the current export.
+
+* Historical comparison — measured 2026-10-11 15:05 PDT
 Receipt: [[file:receipts/2026-10-11T1505-final-live.json][final eight-fixture receipt]].
+This receipt belongs to public ~32ffba4~, with the earlier support-rule shortcut
+and Opus judge. The current default is annotate-only rules with Clef Flash.
 This run includes the host:port and TLD-agnostic redaction fixes. The local
 server was warmed; OCR time is excluded. Local model: qwen3-8b-q4_k_m.gguf.
 Requested and resolved cloud model: anthropic/claude-opus-5 through OpenRouter.

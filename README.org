@@ -7,6 +7,8 @@ language model, and an optional cloud judge. This is a hackathon prototype:
 it can miss threats or flag innocent content. No result authenticates a person,
 website or message.
 
+[[https://craftedkin.net/mmhax26-shepherd/][Presentation and working-app demo]]
+
 * Run the companion
 Use Node 22.12 or newer, npm, and Tesseract with English language data.
 Playwright Chromium is needed for browser tests.
@@ -30,8 +32,10 @@ not guaranteed.
 
 ~npm run dev~ builds and starts the service; it is not a file watcher.
 ~SHEPHERD_PORT~ changes the default port. Only ~127.0.0.1~ is bound; use that
-address because the Host check is exact. ~/trace~ shows content-free route
-events, cloud-call counters and reported costs. The root URL returns status.
+address because the Host check is exact. ~/trace~ shows expandable local route
+events, page/app metadata, bounded OCR text, evidence, model summaries,
+cloud-call counters and reported costs. Treat this view as private screen
+content. The root URL returns status.
 
 The tests use synthetic screenshots, fake transports and a fake browser picker.
 They do not establish real operating-system capture or Messages permissions.
@@ -44,10 +48,14 @@ Qwen3 8B GGUF weights, start it separately:
 llama-server -m /path/to/qwen3-8b-q4_k_m.gguf --host 127.0.0.1 --port 8080 -c 8192 --jinja
 #+end_src
 
-~SHEPHERD_LLAMA_URL~ selects another loopback port. The adapter uses
+~SHEPHERD_LLAMA_PORT~ selects another loopback port. Alternatively, set
+~SHEPHERD_LOCAL_MODEL~ to the GGUF path and let the companion start the model
+automatically at runtime startup; ~SHEPHERD_LLAMA_SERVER~ overrides the executable.
+An already-running external server is reused and is never stopped by Shepherd.
+The companion displays the selected model and lifecycle state. The adapter uses
 non-thinking, schema-constrained output. Risk labels are not calibrated
 probabilities. Without the service, the runtime reports the missing tier;
-narrow rules still operate.
+rules continue to annotate evidence, but do not decide concerns by default.
 
 The cloud adapter uses OpenRouter. Put ~OPENROUTER_API_KEY~ in an untracked
 local ~.env~ file, then run:
@@ -56,10 +64,18 @@ local ~.env~ file, then run:
 node --env-file=.env dist/server/main.js
 #+end_src
 
-~SHEPHERD_CLOUD_MODEL~ overrides the configured model identifier. A key alone
-does not enable dispatch: the companion must register an explicit, unexpired
+~SHEPHERD_CLOUD_JUDGE=decisions~ is the default. Its decision model defaults to
+~cloudflare/clef-flash~; ~SHEPHERD_DECISION_MODEL~ also accepts ~cloudflare/clef~
+or ~typesafe/jev-1.13~. The trace shows benign/suspicious/unknown class scores
+as uncalibrated model outputs. To use a chat-completion judge instead, set
+~SHEPHERD_CLOUD_JUDGE=openrouter~ and optionally ~SHEPHERD_CLOUD_MODEL~
+(default ~anthropic/claude-opus-5~). These are alternative judges, not a cascade.
+
+A key alone does not enable dispatch: the companion must register an explicit, unexpired
 grant for the current session generation and source. A new grant supersedes
-every earlier grant. Pause or source change requires consent again.
+every earlier grant. Cloud permission can be selected before Start; it binds
+to the chosen source once capture starts. Pause or source change requires
+consent again. Revocation also rejects a late-arriving registration response.
 
 ~SHEPHERD_FAMILY_HANDLE~ optionally enables fixed-text Messages alerts.
 ~SHEPHERD_PERSON~ and ~SHEPHERD_FAMILY_NAME~ set local names. The demo persona
@@ -70,15 +86,36 @@ Messages availability and recipient reachability require manual verification.
 * Capture and data boundaries
 The browser capture path sends the chosen image to the loopback service for
 Tesseract OCR. A separate macOS helper is documented in
-[[file:tools/shepherd-eyes/README.org][the native helper guide]]. It uses Vision OCR and defaults to the whole
-primary display, including adjacent windows from other apps. Its
+[[file:tools/shepherd-eyes/README.org][the native helper guide]]. It uses Vision OCR to return foreground-window
+text as primary evidence and whole-display text as local-only context. Its
 ~--include-app~ option gates on the frontmost app; it does not hide other
-apps' pixels. ~--scope window~ limits that helper to the frontmost window.
+apps' pixels from display context. Explicit crop output supports local evidence.
 The helper is not automatically started by the companion in this snapshot.
 
-Pixels and OCR text are transient in the application. Optional browser history
-keeps at most 100 generic summaries, not screenshots, OCR, evidence, titles or
-URLs. Full local evidence journaling and automatic expiry are not implemented.
+~SHEPHERD_ACCESSIBILITY=1~ additionally starts the macOS accessibility observer
+after its helper is built and permission is granted. It supplies reading-order
+text plus app/window/URL context. See [[file:tools/shepherd-accessibility/README.org][the accessibility guide]].
+
+The in-memory trace includes screen text and metadata, available only through
+the loopback/token boundary. Optional browser history keeps at most 100 generic
+summaries, not screenshots or OCR. The separate local observation journal is
+off by default. Its companion switch enables periodic samples and suspicious
+contexts, including submitted PNGs and available text/pipeline records, in an
+owner-only app-private directory. ~SHEPHERD_JOURNAL_DIR~ selects a dedicated
+absolute directory. Use only a directory reserved for these records: Delete all
+retained records clears that directory. Retained data accumulates until deleted.
+The token-authorized local inspector can retrieve a retained record; raw
+retained PNGs are not sent through trace SSE, cloud requests or family alerts.
+Each model request still analyzes one observation, not a sliding history.
+
+[[file:tools/shepherd-voice/README.org][The voice helper]] transcribes system audio or microphone input on-device.
+Its source adapter and fixed voice templates are included; the default browser
+capture path does not start audio capture.
+
+~SHEPHERD_THREAT_STORE~ selects an existing offline feed snapshot;
+~SHEPHERD_THREAT_OCR=1~ also tags bounded OCR URL mentions. These trace annotations
+include provenance and never change classification or trigger an online lookup.
+See [[file:tools/threat-intel/README.org][the feed snapshot guide]].
 
 Cloud requests use bounded excerpts and pattern redaction, never screenshots.
 By default, only rule-matched spans can form an excerpt; neighbouring lines,
@@ -97,7 +134,9 @@ pages for the demo. On-screen content and model output are untrusted.
 | POST /api/analyze | Token/origin-checked PNG or native text frame |
 | POST /api/consent | Register one current cloud grant |
 | DELETE /api/consent/<id> | Revoke grant and pending associated work |
-| GET /trace | Content-free routing display |
+| GET/PUT/DELETE /api/journal | Local journal state, enable switch and deletion |
+| GET /api/journal/observation/<id> | Token-authorized retained record for the inspector |
+| GET /trace | Local evidence and routing display |
 
 ~npm run check~ runs root tests, tool suites, TypeScript checks/build and
 Chromium specs. ~node demo/check.mjs~ checks the eight synthetic fixtures with
@@ -111,12 +150,19 @@ Cloud usage has session limits and a bounded cache; unknown cost remains
 unknown rather than being reported as free.
 
 * Measured demo and replay
-One eight-fixture run found all configured concerns with no false alarms under
+The historical Qwen3/Opus eight-fixture run at public ~32ffba4~ found all configured concerns with no false alarms under
 the routed policy: one cloud call, 1,498 outbound bytes and USD 0.009 reported
 cost. The cloud-only comparison made eight calls (17,327 bytes, USD 0.05989).
 The local-only comparison missed one concern. These are small-sample results,
 not production accuracy or cost guarantees; OCR time is excluded from latency.
-The [[file:eval/README.org][evaluation guide]] contains the receipt, method and limitations.
+The [[file:eval/README.org][evaluation guide]] contains the receipt, method and limitations. That run used
+the earlier rules-decide policy and Opus judge; it does not measure the current
+default decision model or annotate-only policy.
+
+A separate [[file:eval/receipts/2026-10-11-decisions-judge-e2e.json][Clef Flash end-to-end receipt]] shows one uncached bank-fixture
+escalation after a local low result: suspicious, 447 ms for the cloud step,
+810 outbound bytes, USD 0.000010146. This is an independent single-fixture
+observation, not a rerun of the eight-page comparison.
 
 ~SHEPHERD_CLOUD_RECORD~ saves closed verdict codes keyed by excerpt hash, not
 screen text. ~SHEPHERD_CLOUD_REPLAY~ loads a rehearsal recording. Replays are
@@ -129,14 +175,15 @@ cost. Missing replay entries are unavailable, never fabricated verdicts.
   evaluation; the fallback does not analyze the omitted text.
 - Lookalike-domain heuristics can overflag benign names and miss others.
   ~other_concern~ allows a grounded model concern outside the named categories;
-  it does not guarantee novel-attack detection. Only the narrow support-pressure
-  rule settles a concern without model confirmation.
+  it does not guarantee novel-attack detection. Rules annotate by default;
+  ~SHEPHERD_RULES_DECIDE=1~ restores the narrow support-pressure shortcut.
+  An open-category concern is shown quietly by default;
+  ~SHEPHERD_OPEN_CONCERN=spoken~ enables its spoken intervention.
 - Family delivery failures are surfaced, but an accepted send is not proof
   that the recipient saw the message. Grant expiry and renewal controls are basic.
-- Tesseract can interleave multi-column text. Accessibility-tree extraction,
-  generated-media detection and local evidence journaling are not included.
+- Tesseract can interleave multi-column text. Accessibility provides a separate
+  structured source for apps that expose their text.
 - The native-source adapter is tested but not connected to the companion's
-  default capture path. Start llama-server separately; managed model lifecycle
-  and offline threat-list tagging are not part of this snapshot.
+  default capture path. macOS helper permissions require an attended local run.
 - Fixture measurements are small, historical samples, not guarantees of
   accuracy, privacy, availability or production economics.

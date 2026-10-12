@@ -1,5 +1,5 @@
 // Fixed local templates for what the person hears and what family receives
-//. Keyed by (status, pattern, verdict kind).
+// (contract contract v2, child ztq). Keyed by (status, pattern, verdict kind).
 // No provider-authored text ever reaches speech or Messages: models contribute
 // closed codes only, and every placeholder is filled from local configuration.
 import type { Assessment, Pattern, Reason } from './assessment.ts';
@@ -29,7 +29,13 @@ export const templateTable = {
   // Pattern other names no category, so the caution names the pressure instead (v2.1).
   suspicious_other: 'This page has signs of pressure to act quickly or share something private. Pause and check with someone you trust before doing anything.',
   scam: 'This looks like a {pattern}. Nobody honest asks for this. Pause and call {family_name}.',
+  // Voice segments (hf8): describe what is said, never the screen or who is speaking.
+  voice_suspicious: 'What is being said has signs of a {pattern}. Pause and check with someone you trust before doing anything.',
+  voice_suspicious_other: 'What is being said has signs of pressure to act quickly or share something private. Pause and check with someone you trust before doing anything.',
+  voice_scam: 'This sounds like a {pattern}. Nobody honest asks for this. Hang up and call {family_name}.',
   family: "Shepherd noticed a possible {pattern} on {person}'s screen at {time}. No action was taken. Call when you can.",
+  // the team 15:42 (hf8): never names or implies who was speaking.
+  voice_family: "Shepherd heard signs of a possible {pattern} near {person}'s computer at {time}. No action was taken. Call when you can.",
   familyTest: "This is a test from Shepherd. Alerts about {person}'s screen will come from this conversation.",
 } as const;
 
@@ -63,13 +69,20 @@ export function speechKind(assessment: Assessment): SpeechKind | undefined {
   return 'suspicious';
 }
 
-export function speechText(kind: SpeechKind, pattern: Pattern, persona: Persona): string {
-  const template = kind === 'suspicious' && pattern === 'other' ? templateTable.suspicious_other : templateTable[kind];
+export type Medium = 'screen' | 'voice';
+export const mediumOf = (assessment: Pick<Assessment, 'source'>): Medium => (assessment.source === 'voice' ? 'voice' : 'screen');
+
+export function speechText(kind: SpeechKind, pattern: Pattern, persona: Persona, medium: Medium = 'screen'): string {
+  const voice = medium === 'voice';
+  const template = kind === 'suspicious' && pattern === 'other' ? (voice ? templateTable.voice_suspicious_other : templateTable.suspicious_other)
+    : kind === 'suspicious' ? (voice ? templateTable.voice_suspicious : templateTable.suspicious)
+      : voice ? templateTable.voice_scam : templateTable.scam;
   return render(template, { pattern: patternLabels[pattern], family_name: persona.family_name });
 }
 
 // Family may hear of a concern only with rules or cloud corroboration: a
 // model-only open-category concern (row 12d) is spoken, never sent (v2.1).
+// Voice concerns use the same guards with the voice family template (hf8).
 export function familyAllowed(assessment: Assessment): boolean {
   return speechKind(assessment) !== undefined && assessment.policy_row !== '12d';
 }
@@ -78,7 +91,7 @@ export function familyTestText(persona: Persona): string {
   return render(templateTable.familyTest, { person: persona.person });
 }
 
-export function familyText(pattern: Pattern, persona: Persona, at: Date, timeZone?: string): string {
+export function familyText(pattern: Pattern, persona: Persona, at: Date, timeZone?: string, medium: Medium = 'screen'): string {
   const time = at.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', ...(timeZone ? { timeZone } : {}) });
-  return render(templateTable.family, { pattern: patternLabels[pattern], person: persona.person, time });
+  return render(medium === 'voice' ? templateTable.voice_family : templateTable.family, { pattern: patternLabels[pattern], person: persona.person, time });
 }

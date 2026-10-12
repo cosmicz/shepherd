@@ -1,0 +1,28 @@
+#+title: Offline threat-list snapshots
+
+This tool downloads the approved Block List Project malware and phishing lists
+only as inert, bounded text. It resolves a GitHub revision, fetches the
+revision-pinned lists and license, then atomically activates a private snapshot.
+Never place the store directory in this repository, a web root, or a release
+artifact.
+
+* Commands
+
+#+begin_src sh
+node tools/threat-intel/cli.mjs refresh --store-dir /absolute/private/shepherd-threat-intel
+node tools/threat-intel/cli.mjs tag --store-dir /absolute/private/shepherd-threat-intel --input /absolute/input.jsonl --output /absolute/tagged.jsonl
+#+end_src
+
+The tagger does no network, DNS, capture, model, or browser work. Eligible
+records have native URL metadata, for example
+= {"id":"obs-1","url":{"value":"https://example.invalid","provenance":"native_metadata"}} =.
+URLs merely present in OCR/body text are ignored. A tag means only “listed by
+feed; indicator only”; no match does not mean safe. Malware and phishing lists
+are categories from one upstream, never independent votes.
+
+* Integration status
+
+The CLI can tag JSONL independently. In the runtime, ~SHEPHERD_THREAT_STORE~
+loads an existing snapshot for trace annotations. ~SHEPHERD_THREAT_OCR=1~
+additionally checks bounded OCR URL mentions, explicitly marked as unverified
+mentions rather than visited destinations. These tags do not affect routing.

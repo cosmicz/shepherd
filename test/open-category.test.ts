@@ -1,11 +1,11 @@
-// Contract v2.1 open category: a concern outside the named
+// Contract v2.1 open category (contract): a concern outside the named
 // categories surfaces as other_concern, never as a familiar label it is not.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { analyzeText, parseAssessment, toEvent, type Assessment, type Frame, type Pattern, type TextFrame } from '../src/domain/assessment.ts';
 import { demoPersona } from '../src/domain/persona.ts';
 import { decide } from '../src/domain/policy.ts';
-import { patternOf, speechKind, speechText } from '../src/domain/templates.ts';
+import { patternOf, speechKind } from '../src/domain/templates.ts';
 import { patternReason, RoutedAnalyzer, type CloudJudgeOutcome, type CloudJudgePort, type LocalModelPort } from '../src/application/routing.ts';
 import { Session, type CaptureHandle } from '../src/application/session.ts';
 
@@ -40,7 +40,7 @@ const run = (r: ReturnType<typeof routed>, input: TextFrame) => r.analyzer.analy
 const egress = (a: Assessment) => ({ remote_calls: a.trace.reduce((n, s) => n + s.remote_calls, 0), bytes_out: a.trace.reduce((n, s) => n + s.bytes_out, 0) });
 const tiers = (a: Assessment) => a.trace.map((s) => `${s.tier}:${s.outcome}${s.failure_kind ? `/${s.failure_kind}` : ''}`);
 
-// The fallback runs only when no tier named a reason. Before the open-category change no routed
+// The fallback runs only when no tier named a reason. On 462260d no routed
 // concern reaches it (rules or local reasons are always present), so the bug was
 // latent; the mapping itself is the contract.
 test('cloud pattern other maps to other_concern, never impersonation', () => {
@@ -54,25 +54,25 @@ test('the novel fixture matches no rule', () => {
   assert.equal(analyzeText(novel, { frame_id: 'x', source: 'native' }).status, 'no_signal');
 });
 
-test('row 12d: novel threat, local high other_concern with a verbatim cue, no consent -> spoken caution, zero egress', async () => {
+test('row 12d: novel threat, local high other_concern with a verbatim cue, no consent -> quiet caution (shown, not spoken), zero egress', async () => {
   const r = routed({ local: { risk: 'high', reasons: ['other_concern'], cue } });
   const a = parseAssessment(await run(r, frame(novel)));
-  assert.deepEqual([a.policy_row, a.status, a.route], ['12d', 'concern', 'local-model']);
-  assert.deepEqual(a.reasons, ['other_concern']);
+  assert.deepEqual([a.policy_row, a.status, a.route], ['12d', 'inconclusive', 'local-model']);
+  assert.deepEqual(a.reasons, [], 'inconclusive carries no reason codes; the row identifies the open concern');
   assert.deepEqual(egress(a), { remote_calls: 0, bytes_out: 0 });
   assert.equal(r.calls.cloud, 0);
   assert.deepEqual(tiers(a), ['rules:no_signal', 'local-model:concern', 'cloud:skipped/no_consent']);
   assert.equal(patternOf(a), 'other');
-  assert.equal(speechKind(a), 'suspicious');
-  assert.equal(speechText('suspicious', patternOf(a), {}), 'This page has signs of pressure to act quickly or share something private. Pause and check with someone you trust before doing anything.');
-  // History records it with the open category.
-  assert.deepEqual(toEvent(a, 'shown', 'e-1', '2026-10-11T14:40:00.000Z').reasons, ['other_concern']);
+  assert.equal(speechKind(a), undefined, 'quiet: nothing is spoken for a lone local-model concern');
+  assert.equal(a.message, 'This page has signs of pressure to act quickly or share something private. Pause and check with someone you trust before doing anything.');
+  // History records the inconclusive row without reason codes (row 12d is on the trace).
+  assert.deepEqual(toEvent(a, 'shown', 'e-1', '2026-10-11T14:40:00.000Z').reasons, []);
 });
 
 test('row 12d with a live grant but the quote path off: no excerpt is possible, so it settles locally', async () => {
   const r = routed({ local: { risk: 'high', reasons: ['other_concern'], cue }, consent: true });
   const a = await run(r, frame(novel, { consent: grant }));
-  assert.deepEqual([a.policy_row, a.status, a.route], ['12d', 'concern', 'local-model']);
+  assert.deepEqual([a.policy_row, a.status, a.route], ['12d', 'inconclusive', 'local-model']);
   assert.deepEqual(tiers(a), ['rules:no_signal', 'local-model:concern', 'cloud:skipped/no_anchor']);
   assert.deepEqual(egress(a), { remote_calls: 0, bytes_out: 0 });
   assert.equal(r.calls.cloud, 0);
@@ -100,7 +100,7 @@ test('other_concern without a valid cue is malformed: inconclusive, not a concer
 
 test('unknown reason strings are dropped; with none left a valid cue makes other_concern, else malformed', async () => {
   const kept = await run(routed({ local: { risk: 'high', reasons: ['qr_code_parking_scam'], cue } }), frame(novel));
-  assert.deepEqual([kept.policy_row, kept.status, kept.reasons], ['12d', 'concern', ['other_concern']]);
+  assert.deepEqual([kept.policy_row, kept.status, kept.reasons], ['12d', 'inconclusive', []]);
   const dropped = await run(routed({ local: { risk: 'high', reasons: ['qr_code_parking_scam'], cue: 'not on the page at all' } }), frame(novel));
   assert.deepEqual([dropped.policy_row, dropped.status], ['6', 'inconclusive']);
   // A known reason survives beside an unknown one and keeps its usual row (12b without consent).
@@ -122,7 +122,8 @@ test('policy: 12d only for rules no_signal + local high + other_concern behind a
   const none = { status: 'no_signal' as const, reasons: [] };
   const high = { kind: 'result' as const, risk: 'high' as const, reasons: ['other_concern' as const] };
   const closed = { grant: false, provider: true, budget: true };
-  assert.deepEqual(decide({ rules: none, local: high, gate: closed }), { kind: 'final', row: '12d', status: 'concern', route: 'local-model', message: 'caution', skipped: 'no_consent' });
+  assert.deepEqual(decide({ rules: none, local: high, gate: closed }), { kind: 'final', row: '12d', status: 'inconclusive', route: 'local-model', message: 'caution', skipped: 'no_consent' });
+  assert.deepEqual(decide({ rules: none, local: high, gate: closed, open_concern: 'spoken' }), { kind: 'final', row: '12d', status: 'concern', route: 'local-model', message: 'caution', skipped: 'no_consent' });
   assert.deepEqual(decide({ rules: none, local: high, gate: { grant: true, provider: true, budget: true } }), { kind: 'call-cloud', row: '12' });
   assert.equal((decide({ rules: none, local: { ...high, reasons: ['payment_pressure'] }, gate: closed }) as { row: string }).row, '12b');
   // A weak rules concern with local high is row 7 regardless of other_concern.
@@ -144,9 +145,9 @@ async function sessionOutcome(assessment: Assessment) {
   return { spoken: spoken.length, alerts: alerts.length, appended };
 }
 
-test('row 12d speaks and records history but never alerts family; row 7 still alerts', async () => {
+test('row 12d is shown but not spoken and never alerts family; row 7 still alerts', async () => {
   const a = await run(routed({ local: { risk: 'high', reasons: ['other_concern'], cue } }), frame(novel));
-  assert.deepEqual(await sessionOutcome(a), { spoken: 1, alerts: 0, appended: ['other_concern'] });
+  assert.deepEqual(await sessionOutcome(a), { spoken: 0, alerts: 0, appended: [''] }, 'one history event, no reason codes');
   const row7 = await run(routed({ local: { risk: 'high', reasons: ['payment_pressure'], cue: '' } }), frame('Your account will be suspended today. Please buy gift cards now and send the codes.'));
   assert.equal(row7.policy_row, '7');
   assert.equal((await sessionOutcome(row7)).alerts, 1);

@@ -10,9 +10,12 @@ swiftc -O -framework ScreenCaptureKit -framework Vision -framework AppKit \
   tools/shepherd-eyes/main.swift -o tools/shepherd-eyes/build/shepherd-eyes
 #+end_src
 
-Run the helper only with explicit user consent and Screen Recording permission
-for the terminal/helper. It holds screenshots only in memory and emits recognised text
-and line geometry as JSON lines; it does not write image files or pixel buffers.
+Do not run the helper until Screen Recording permission for the terminal/helper
+has been granted and the operator has explicitly approved
+the first capture. It holds screenshots only in memory and emits recognised text
+and line geometry as JSON lines. Each tick produces a foreground-window
+observation (the primary rules/model evidence) and a whole-display observation
+(local-only context). No pixel data is emitted in JSON.
 
 The Node adapter starts this repository build by default. Set
 ~SHEPHERD_EYES_BIN~ to an explicit operator-built path when the helper is
@@ -20,10 +23,8 @@ elsewhere; the child receives a minimal environment. A launch failure,
 permission denial, or unexpected helper exit is reported as a bounded local
 unavailable state, never with helper diagnostics or captured text.
 
-* Helper flags
+* Runtime flags
 
-- ~--scope display~ is the default and captures the main display.
-- ~--scope window~ limits capture to the frontmost shareable window.
 - ~--once~ performs a one-shot capture after approval.
 - ~--fps 1~ sets the default continuous capture rate.
 - ~--include-app bundle.id~ limits output to a frontmost bundle identifier.
@@ -31,3 +32,10 @@ unavailable state, never with helper diagnostics or captured text.
   ~Shepherd nonce~ marker. The companion must generate a fresh random session
   nonce (at least 96 bits), include it in its own title, and pass it to the
   helper; ordinary page titles cannot suppress capture.
+- ~--crop x,y,width,height --crop-output path~ writes a PNG crop of the retained
+  display image only when both arguments are present. The path is supplied by
+  the caller for an on-device journal; ordinary captures write no image file.
+
+The adapter maps ~window_text~ to its primary ~TextFrame.text~. It carries
+~display_text~ only as local context: display text never supplies a cloud
+excerpt.

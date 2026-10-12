@@ -16,9 +16,17 @@ class FakeChild extends EventEmitter implements NativeEyesChild {
 function frame(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     frame_id: 'native-1', captured_at: '2026-10-11T14:00:00Z', app: 'Safari', bundle_id: 'com.apple.Safari',
-    window_title: 'Alert', url: 'https://example.test/alert', text: 'Your computer is infected. Call support now.',
-    lines: [{ text: 'Your computer is infected. Call support now.', x: 1, y: 2, w: 3, h: 4 }],
-    width: 100, height: 100, capture_ms: 2, ocr_ms: 3, excluded_windows: 1, scope: 'display', reason: 'change', ...overrides,
+    window_title: 'Alert', url: 'https://example.test/alert',
+    window_text: 'Your computer is infected. Call support now.',
+    window_lines: [{ text: 'Your computer is infected. Call support now.', x: 1, y: 2, w: 3, h: 4 }],
+    window_width: 100, window_height: 100,
+    display_text: 'Your computer is infected. Call support now.\nCalendar reminder',
+    display_lines: [
+      { text: 'Your computer is infected. Call support now.', x: 1, y: 2, w: 3, h: 4 },
+      { text: 'Calendar reminder', x: 6, y: 7, w: 8, h: 9 },
+    ],
+    display_width: 400, display_height: 300,
+    capture_ms: 2, ocr_ms: 3, excluded_windows: 1, reason: 'change', ...overrides,
   };
 }
 
@@ -33,7 +41,7 @@ function source(options: Record<string, unknown> = {}) {
   const unavailable: unknown[] = [];
   return {
     child, starts, received, unavailable,
-    source: new NativeEyesSource((value) => received.push(value), launcher, (value) => unavailable.push(value), { scope: 'window', fps: 1, ...options }),
+    source: new NativeEyesSource((value) => received.push(value), launcher, (value) => unavailable.push(value), { fps: 1, ...options }),
   };
 }
 
@@ -46,12 +54,17 @@ test('native eyes launches through an injected child, publishes TextFrames, and 
   await tick();
   assert.equal(h.starts.length, 1);
   assert.match(h.starts[0].executable, /tools\/shepherd-eyes\/build\/shepherd-eyes$/);
-  assert.deepEqual(h.starts[0].args, ['--scope', 'window', '--fps', '1']);
+  assert.deepEqual(h.starts[0].args, ['--fps', '1']);
   assert.deepEqual(h.received, [{
     frame_id: 'native-1', source: 'native', text: 'Your computer is infected. Call support now.',
     captured_at: '2026-10-11T14:00:00Z', app: 'Safari', bundle_id: 'com.apple.Safari', window_title: 'Alert',
     url: 'https://example.test/alert', url_status: 'ok',
-    lines: [{ text: 'Your computer is infected. Call support now.', x: 1, y: 2, w: 3, h: 4 }], scope: 'display',
+    lines: [{ text: 'Your computer is infected. Call support now.', x: 1, y: 2, w: 3, h: 4 }],
+    display_text: 'Your computer is infected. Call support now.\nCalendar reminder',
+    display_lines: [
+      { text: 'Your computer is infected. Call support now.', x: 1, y: 2, w: 3, h: 4 },
+      { text: 'Calendar reminder', x: 6, y: 7, w: 8, h: 9 },
+    ],
   }]);
   stop();
   h.child.line(frame({ frame_id: 'late' }));
@@ -71,7 +84,12 @@ test('native eyes discards malformed and unknown helper lines but continues with
   assert.deepEqual(h.received[0], {
     frame_id: 'valid-after-bad', source: 'native', text: 'Your computer is infected. Call support now.',
     captured_at: '2026-10-11T14:00:00Z', app: 'Safari', bundle_id: 'com.apple.Safari', window_title: 'Alert', url: null,
-    url_status: 'absent', lines: [{ text: 'Your computer is infected. Call support now.', x: 1, y: 2, w: 3, h: 4 }], scope: 'display',
+    url_status: 'absent', lines: [{ text: 'Your computer is infected. Call support now.', x: 1, y: 2, w: 3, h: 4 }],
+    display_text: 'Your computer is infected. Call support now.\nCalendar reminder',
+    display_lines: [
+      { text: 'Your computer is infected. Call support now.', x: 1, y: 2, w: 3, h: 4 },
+      { text: 'Calendar reminder', x: 6, y: 7, w: 8, h: 9 },
+    ],
   });
 });
 
@@ -82,8 +100,8 @@ test('native eyes retains only complete UTF-8 lines within 32 KiB and marks over
   const keptLines = Array.from({ length: 18 }, () => firstLine);
   const rawLines = [...keptLines, 'ß'.repeat(900)];
   h.child.line(frame({
-    text: rawLines.join('\n'),
-    lines: rawLines.map((text, index) => ({ text, x: 1, y: index * 20, w: 3, h: 4 })),
+    window_text: rawLines.join('\n'),
+    window_lines: rawLines.map((text, index) => ({ text, x: 1, y: index * 20, w: 3, h: 4 })),
     url: `https://example.test/${'x'.repeat(2050)}`,
   }));
   await tick();

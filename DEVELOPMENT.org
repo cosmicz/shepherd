@@ -25,8 +25,31 @@ only for previously persisted payload compatibility; new assessments emit
 request records zero remote calls and zero bytes, while a dispatched request
 records its exact serialized UTF-8 byte count.
 
-Raw pixels, OCR text and URLs are transient. History is opt-in and keeps at
-most 100 generic summaries.
+The trace intentionally includes bounded OCR text, app/window/URL context,
+evidence, messages and model-produced summaries. It remains local behind the
+loopback/token boundary. Browser history is a separate opt-in store of at most
+100 generic summaries. The journal collector is wired through injected ports
+and remains off until the companion's local recording switch is enabled. It
+retains periodic and suspicious observations, with a separate token-authorized
+inspector read endpoint and explicit delete-all. The default directory is
+app-private; any configured directory must be dedicated to this journal.
+Models currently analyze individual observations, not a sliding history.
+
+Journal tests use synthetic observations. Available text is preserved, but the
+browser PNG collector does not promise complete OCR for every observation.
+Retention has no automatic expiry; the UI explicitly warns that it accumulates.
+
+The default cloud judge uses OpenRouter Decisions with Clef Flash. Clef and Jev
+are configurable alternatives; the chat-completion adapter can instead use
+Opus. Only one cloud judge is selected. Decision distributions are display-only,
+uncalibrated values, not routing thresholds. Rules annotate by default; the
+legacy support-pressure shortcut is an explicit opt-in. Offline feed matches
+decorate trace rows and do not change policy decisions.
+
+Local-model lifecycle is managed through a loopback llama-server process port.
+Existing external servers are reused without taking process ownership. Native
+accessibility observation is opt-in; voice source adapters are independent of
+browser capture. No test should request an operating-system permission.
 
 [2026-10-11 Sun] Native-eyes source normalizes the Swift helper's JSONL into
 ~TextFrame~ values through an injected process boundary. It never shortens a
@@ -38,15 +61,15 @@ operator-run from Terminal.app; tests use a fake child process only.
 [2026-10-11 Sun] The helper executable defaults to the documented repository
 build location and may be overridden by ~SHEPHERD_EYES_BIN~. Spawn errors,
 typed helper stderr and unexpected exits map to fixed local unavailable states;
-raw diagnostics and captured text never enter the companion or trace.
+raw process diagnostics do not enter the companion or trace. Captured text can
+appear in the local evidence view under the bounds described above.
 
 
 * Validation
 The public snapshot uses fixed code with a version-bound eight-fixture receipt.
 Public documentation and test labels omit private workflow identifiers; receipt
-provenance explicitly marks redacted source identifiers. Larger local-model
-context, managed model lifecycle, threat-list tagging and expanded capture modes
-are not implied by this snapshot. Partial local-model input remains inconclusive
+provenance explicitly marks redacted source identifiers. Historical measured
+receipts retain their original policy/model binding. Partial local-model input remains inconclusive
 when its otherwise-final result would be no_signal.
 
 ~npm run check~ runs the native tests, the tools suites, the TypeScript build

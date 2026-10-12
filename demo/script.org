@@ -1,7 +1,9 @@
 #+title: Shepherd — three-minute demo script
 #+date: [2026-10-11 Sun]
 
-This script uses the final eight-page measurements in [[file:../eval/README.org][eval/README.org]].
+This script cites the historical Opus eight-page measurements at public
+~32ffba4~ in [[file:../eval/README.org][eval/README.org]]. The current default judge is Clef Flash;
+Jev and Opus are configurable alternatives. Rules now annotate rather than decide.
 Outcomes vary; narrate the trace actually shown. The runbook covers setup,
 consent, real-device checks and labelled replay. Do not claim unwitnessed speech
 or family-message delivery.
@@ -48,9 +50,9 @@ Do not claim the cloud saw only two sentences with no task metadata, or that
 the deterministic rules are a third model.
 
 * 1:55–2:10 Support popup
-Open security-alert. The narrow infection-plus-call-now rule settles a concern
-without inference.
-“This particular pattern can be caught locally without a model call.”
+Open security-alert. The infection-plus-call-now pattern supplies evidence for
+model review. Point to the actual local-model and cloud outcomes.
+“The rules locate pressure cues; the models interpret the context.”
 
 * 2:10–2:25 Benign advice
 Open seniorcenter. In the final run it was no_signal despite discussing

@@ -4,17 +4,34 @@ import Foundation
 import ScreenCaptureKit
 import Vision
 
-private enum Scope: String {
-    case display
-    case window
+private struct Crop: Equatable {
+    let x: Int
+    let y: Int
+    let width: Int
+    let height: Int
+
+    init(argument: String) throws {
+        let parts = argument.split(separator: ",", omittingEmptySubsequences: false)
+        guard parts.count == 4,
+              let x = Int(parts[0]), let y = Int(parts[1]),
+              let width = Int(parts[2]), let height = Int(parts[3]),
+              x >= 0, y >= 0, width > 0, height > 0 else {
+            throw HelperError.usage("--crop requires x,y,width,height in display pixels")
+        }
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
 }
 
 private struct Options {
-    var scope: Scope = .display
     var once = false
     var framesPerSecond: Double = 1
     var includedBundleID: String?
     var exclusionNonce: String?
+    var crop: Crop?
+    var cropOutput: URL?
 
     init(arguments: [String]) throws {
         var index = 0
@@ -23,12 +40,6 @@ private struct Options {
             switch argument {
             case "--once":
                 once = true
-            case "--scope":
-                index += 1
-                guard index < arguments.count, let parsed = Scope(rawValue: arguments[index]) else {
-                    throw HelperError.usage("--scope requires window or display")
-                }
-                scope = parsed
             case "--fps":
                 index += 1
                 guard index < arguments.count, let parsed = Double(arguments[index]), (0.1...10).contains(parsed) else {
@@ -47,6 +58,18 @@ private struct Options {
                     throw HelperError.usage("--exclude-nonce requires a per-session nonce of at least 16 characters")
                 }
                 exclusionNonce = arguments[index]
+            case "--crop":
+                index += 1
+                guard index < arguments.count else {
+                    throw HelperError.usage("--crop requires x,y,width,height in display pixels")
+                }
+                crop = try Crop(argument: arguments[index])
+            case "--crop-output":
+                index += 1
+                guard index < arguments.count, !arguments[index].isEmpty else {
+                    throw HelperError.usage("--crop-output requires a caller-provided PNG path")
+                }
+                cropOutput = URL(fileURLWithPath: arguments[index])
             case "--help", "-h":
                 throw HelperError.usage(Options.usage)
             default:
@@ -54,12 +77,15 @@ private struct Options {
             }
             index += 1
         }
+        if crop != nil && cropOutput == nil { throw HelperError.usage("--crop requires --crop-output") }
+        if crop == nil && cropOutput != nil { throw HelperError.usage("--crop-output requires --crop") }
     }
 
     static let usage = """
-    Usage: shepherd-eyes [--scope display|window] [--once] [--fps 0.1...10] [--include-app bundle.id] [--exclude-nonce nonce]
+    Usage: shepherd-eyes [--once] [--fps 0.1...10] [--include-app bundle.id] [--exclude-nonce nonce] [--crop x,y,width,height --crop-output path]
 
-    Captures only in memory. Default scope is display (the main display).
+    Captures the main display and the frontmost window in memory on each tick.
+    --crop writes a display region only to the explicit --crop-output path.
     Do not run until Screen Recording permission has been approved.
     """
 }
@@ -98,13 +124,16 @@ private struct FrameLine: Encodable {
     let bundleID: String?
     let windowTitle: String?
     let url: String?
-    let text: String
-    let lines: [TextLine]
-    let width: Int
-    let height: Int
+    let windowText: String
+    let windowLines: [TextLine]
+    let windowWidth: Int
+    let windowHeight: Int
+    let displayText: String
+    let displayLines: [TextLine]
+    let displayWidth: Int
+    let displayHeight: Int
     let captureMS: Int
     let ocrMS: Int
-    let scope: String
     let excludedWindows: Int
     let reason: String
 
@@ -114,10 +143,17 @@ private struct FrameLine: Encodable {
         case app
         case bundleID = "bundle_id"
         case windowTitle = "window_title"
-        case url, text, lines, width, height
+        case url
+        case windowText = "window_text"
+        case windowLines = "window_lines"
+        case windowWidth = "window_width"
+        case windowHeight = "window_height"
+        case displayText = "display_text"
+        case displayLines = "display_lines"
+        case displayWidth = "display_width"
+        case displayHeight = "display_height"
         case captureMS = "capture_ms"
         case ocrMS = "ocr_ms"
-        case scope
         case excludedWindows = "excluded_windows"
         case reason
     }
@@ -216,24 +252,29 @@ private final class EyesHelper {
             return
         }
 
-        let filterAndExcludedCount = try filter(for: content, frontmost: frontmost)
+        let filters = try filters(for: content, frontmost: frontmost)
         let captureStart = ContinuousClock.now
-        let image = try await SCScreenshotManager.captureImage(
-            contentFilter: filterAndExcludedCount.filter,
-            configuration: screenshotConfiguration(for: filterAndExcludedCount.filter)
+        let windowImage = try await SCScreenshotManager.captureImage(
+            contentFilter: filters.window,
+            configuration: screenshotConfiguration(for: filters.window)
+        )
+        let displayImage = try await SCScreenshotManager.captureImage(
+            contentFilter: filters.display,
+            configuration: screenshotConfiguration(for: filters.display)
         )
         let captureMS = milliseconds(since: captureStart)
         let fingerprint = Fingerprint(
             windowID: frontmost.window.map { UInt32($0.windowID) },
             title: frontmost.title,
-            imageHash: downscaledHash(image)
+            imageHash: downscaledHash(windowImage) ^ downscaledHash(displayImage)
         )
         let changed = fingerprint != previousFingerprint
         guard changed || Date().timeIntervalSince(lastEmission) >= 30 else { return }
         previousFingerprint = fingerprint
 
         let ocrStart = ContinuousClock.now
-        let lines = try recognizeText(in: image)
+        let windowLines = try recognizeText(in: windowImage)
+        let displayLines = try recognizeText(in: displayImage)
         let ocrMS = milliseconds(since: ocrStart)
         let record = FrameLine(
             frameID: UUID().uuidString,
@@ -242,16 +283,20 @@ private final class EyesHelper {
             bundleID: frontmost.bundleID,
             windowTitle: frontmost.title,
             url: frontmost.url,
-            text: lines.map(\.text).joined(separator: "\n"),
-            lines: lines,
-            width: image.width,
-            height: image.height,
+            windowText: windowLines.map(\.text).joined(separator: "\n"),
+            windowLines: windowLines,
+            windowWidth: windowImage.width,
+            windowHeight: windowImage.height,
+            displayText: displayLines.map(\.text).joined(separator: "\n"),
+            displayLines: displayLines,
+            displayWidth: displayImage.width,
+            displayHeight: displayImage.height,
             captureMS: captureMS,
             ocrMS: ocrMS,
-            scope: options.scope.rawValue,
-            excludedWindows: filterAndExcludedCount.excludedCount,
+            excludedWindows: filters.excludedCount,
             reason: changed ? "change" : "interval"
         )
+        try writeCrop(from: displayImage)
         output.write(record, to: .standardOutput)
         lastEmission = Date()
     }
@@ -277,23 +322,37 @@ private final class EyesHelper {
         )
     }
 
-    private func filter(for content: SCShareableContent, frontmost: FrontmostContext) throws -> (filter: SCContentFilter, excludedCount: Int) {
-        switch options.scope {
-        case .window:
-            guard let window = frontmost.window else {
-                throw HelperError.unavailable("No shareable frontmost window is available")
-            }
-            guard !isSelfWindow(window) else {
-                throw HelperError.unavailable("The frontmost window is marked as Shepherd-owned")
-            }
-            return (SCContentFilter(desktopIndependentWindow: window), 0)
-        case .display:
-            guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
-                throw HelperError.unavailable("No shareable display is available")
-            }
-            let excludedWindows = content.windows.filter(isSelfWindow)
-            return (SCContentFilter(display: display, excludingWindows: excludedWindows), excludedWindows.count)
+    private func filters(for content: SCShareableContent, frontmost: FrontmostContext) throws -> (window: SCContentFilter, display: SCContentFilter, excludedCount: Int) {
+        guard let window = frontmost.window else {
+            throw HelperError.unavailable("No shareable frontmost window is available")
         }
+        guard !isSelfWindow(window) else {
+            throw HelperError.unavailable("The frontmost window is marked as Shepherd-owned")
+        }
+        guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
+            throw HelperError.unavailable("No shareable display is available")
+        }
+        let excludedWindows = content.windows.filter(isSelfWindow)
+        return (
+            window: SCContentFilter(desktopIndependentWindow: window),
+            display: SCContentFilter(display: display, excludingWindows: excludedWindows),
+            excludedCount: excludedWindows.count
+        )
+    }
+
+    // Pixels remain in memory unless the caller explicitly asks to journal an
+    // evidence crop at their supplied path. Crop coordinates are display pixels.
+    private func writeCrop(from displayImage: CGImage) throws {
+        guard let crop = options.crop, let outputURL = options.cropOutput else { return }
+        let bounds = CGRect(x: 0, y: 0, width: displayImage.width, height: displayImage.height)
+        let requested = CGRect(x: crop.x, y: crop.y, width: crop.width, height: crop.height)
+        guard bounds.contains(requested), let image = displayImage.cropping(to: requested) else {
+            throw HelperError.unavailable("Requested crop is outside the captured display")
+        }
+        guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+            throw HelperError.unavailable("Unable to encode requested crop")
+        }
+        try data.write(to: outputURL, options: .atomic)
     }
 
     private func screenshotConfiguration(for filter: SCContentFilter) -> SCStreamConfiguration {

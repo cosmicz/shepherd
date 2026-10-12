@@ -19,12 +19,15 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const manifest = JSON.parse(await readFile(join(root, 'fixtures.json'), 'utf8'));
+const supplemental = JSON.parse(await readFile(join(root, 'supplemental.json'), 'utf8'));
+const pages = [...manifest.pages, ...supplemental.pages];
 const portArgument = process.argv.indexOf('--port');
 const port = portArgument > 0 ? Number(process.argv[portArgument + 1]) : manifest.port;
-const byId = new Map(manifest.pages.map((page) => [page.id, page]));
-const byHost = new Map(manifest.pages.map((page) => [page.host, page]));
+const byId = new Map(pages.map((page) => [page.id, page]));
+const byHost = new Map(pages.map((page) => [page.host, page]));
 const loopbackHosts = new Set(['127.0.0.1', 'localhost']);
-const policy = "default-src 'none'; style-src 'unsafe-inline'; frame-src 'self'";
+const policy = "default-src 'none'; style-src 'unsafe-inline'; frame-src 'self'; img-src 'self'; form-action 'none'; base-uri 'none'";
+const assets = new Set(['bank-notice.png', 'support-notice.png', 'local-weather.png']);
 
 // The address bar in screenshot frames always shows the manifest port, so
 // fixtures stay byte-stable when capture listens elsewhere.
@@ -47,7 +50,7 @@ function frame(page) {
 }
 
 function index() {
-  const rows = manifest.pages.map((page) => `<li><a href="http://${escape(displayUrl(page, port))}/">${escape(page.host)}</a>
+  const rows = pages.map((page) => `<li><a href="http://${escape(displayUrl(page, port))}/">${escape(page.host)}</a>
     — ${escape(page.kind)} — <a href="/pages/${page.id}">${escape(page.id)}</a> · <a href="/frame/${page.id}">framed</a></li>`).join('\n');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Shepherd demo pages</title></head>
   <body><h1>Shepherd demo pages</h1><p>Local fixtures. Nothing here is real.</p><ul>${rows}</ul></body></html>`;
@@ -69,6 +72,11 @@ export const server = createServer(async (request, response) => {
     if (hosted && path === '/') return send(200, await page(hosted));
     if (!hosted && !loopbackHosts.has(host)) return send(421, 'Unknown host');
     const [, route, id] = path.split('/');
+    if (route === 'assets' && assets.has(id) && path === '/assets/' + id) {
+      const body = await readFile(join(root, 'assets', id));
+      response.writeHead(200, { 'content-type': 'image/png', 'content-security-policy': policy, 'x-content-type-options': 'nosniff', 'cache-control': 'no-store' });
+      response.end(body); return;
+    }
     const target = byId.get(decodeURIComponent(id ?? ''));
     if (route === 'pages' && target) return send(200, await page(target));
     if (route === 'frame' && target) return send(200, frame(target));
