@@ -24,17 +24,17 @@ function decodeBase64(encoded: string): Buffer {
 
 export interface DecodedFrame { frame: Frame; png?: Buffer; pixels?: { width: number; height: number } }
 
-// Accepts either variant: a native-helper TextFrame (source 'native', no pixels)
-// or a PNG capture frame from the browser (any other source).
+// Accepts either variant: a TextFrame from a local helper (source 'native' or
+// 'voice', no pixels) or a PNG capture frame from the browser (any other source).
 export function decodeFrame(input: unknown): DecodedFrame {
   const value = record(input);
-  if (value.source === 'native') return { frame: parseTextFrame(value) };
+  if (value.source === 'native' || value.source === 'voice') return { frame: parseTextFrame(value) };
   return decodePngFrame(value);
 }
 
 export function decodePngFrame(value: Record<string, unknown>): { frame: PngFrame; png: Buffer; pixels: { width: number; height: number } } {
   const frame_id = boundedString(value.frame_id);
-  const source = oneOf(value.source, sources.filter((item) => item !== 'native'));
+  const source = oneOf(value.source, sources.filter((item) => item !== 'native' && item !== 'voice'));
   const envelope = parseEnvelope(value);
   const image = boundedString(value.image, MAX_IMAGE_CHARS);
   if (!image.startsWith(PREFIX)) throw Error('Expected a PNG data URL');

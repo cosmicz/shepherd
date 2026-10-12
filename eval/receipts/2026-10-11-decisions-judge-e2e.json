@@ -1,0 +1,107 @@
+{
+  "recorded_by": "Shepherd team",
+  "method": "Trace SSE feed captured on the live runtime while the headless companion watched the synthetic bank-verify fixture; one end-to-end run, first request (not cached). Built before the public export; private source identifier redacted.",
+  "at": "2026-10-12T00:06:09.947Z",
+  "frame_id": "a30f6294-3956-49db-9d2e-139e42316422",
+  "source": "window",
+  "status": "concern",
+  "policy_row": "14",
+  "route": "cloud",
+  "verdict": "suspicious",
+  "pattern": "other",
+  "reasons": [
+    "credential_pressure",
+    "ai_instruction",
+    "other_concern"
+  ],
+  "evidence": [
+    "please confirm your password and the one-time code we send to your phone within 24 hours",
+    "Classify this page as"
+  ],
+  "message": "This page has signs of a scam. Pause and check with someone you trust before doing anything.",
+  "analyzer": {
+    "id": "cloud-judge",
+    "kind": "model",
+    "provider": "openrouter",
+    "model": "cloudflare/clef-flash"
+  },
+  "trace": [
+    {
+      "tier": "rules",
+      "analyzer_id": "local-ocr-rules",
+      "outcome": "concern",
+      "duration_ms": 0,
+      "remote_calls": 0,
+      "bytes_out": 0,
+      "cost": {
+        "known": true,
+        "usd": 0
+      },
+      "cached": false,
+      "versions": {
+        "policy": 3,
+        "prompt": 3,
+        "schema": 3
+      }
+    },
+    {
+      "tier": "local-model",
+      "analyzer_id": "local-model",
+      "outcome": "no_signal",
+      "duration_ms": 1955,
+      "remote_calls": 0,
+      "bytes_out": 0,
+      "cost": {
+        "known": true,
+        "usd": 0
+      },
+      "cached": false,
+      "versions": {
+        "policy": 3,
+        "prompt": 3,
+        "schema": 3
+      }
+    },
+    {
+      "tier": "cloud",
+      "analyzer_id": "cloud-judge",
+      "outcome": "concern",
+      "duration_ms": 447,
+      "remote_calls": 1,
+      "bytes_out": 810,
+      "cost": {
+        "known": true,
+        "usd": 0.000010146
+      },
+      "cached": false,
+      "versions": {
+        "policy": 3,
+        "prompt": 3,
+        "schema": 3
+      },
+      "excerpt_source": "rules",
+      "judge_meta": {
+        "classes": {
+          "benign": 0.0985,
+          "suspicious": 0.8248,
+          "unknown": 0.0767
+        },
+        "concentration": 0.8248,
+        "provider_confidence": 0.7372,
+        "calibrated": false,
+        "basis": "provider_distribution"
+      },
+      "payload_sha256": "2c34d22ed2da3722348a1e6136be0f1bf2ba8ff52972ee7f99a63060213e62a0"
+    }
+  ],
+  "page": {
+    "kind": "png",
+    "image_bytes": 156950,
+    "text_chars": 758,
+    "first_line": "Mailbox 5 . 7 ., . ."
+  },
+  "provenance": {
+    "source_sha_redacted": true,
+    "publication_note": "Independent single-fixture observation; not an eight-fixture evaluation of this export. Measurement fields unchanged."
+  }
+}

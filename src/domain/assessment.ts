@@ -1,20 +1,21 @@
 import { findRules, type RuleOptions } from './rules.ts';
 
-// Contract v2, v2.1 open category: other_concern reason,
-// row 12d, model prompts; prompt 3 states the shared 8-160 cue bound.
+// Contract v2 (contract 12:45), v2.1 open category (r81): other_concern reason,
+// row 12d, model prompts; prompt 3 states the shared 8-160 cue bound (r81 review).
 // All three versions travel in every trace step.
 export const POLICY_VERSION = 3;
 export const PROMPT_VERSION = 3;
 export const SCHEMA_VERSION = 3;
 
 export const statuses = ['concern', 'no_signal', 'inconclusive', 'unavailable'] as const;
-export const sources = ['window', 'tab', 'example', 'native'] as const;
+// Voice is on-device speech; accessibility is exact local AX text.
+export const sources = ['window', 'tab', 'example', 'native', 'voice', 'accessibility'] as const;
 export const reasonCodes = [
   'support_pressure', 'payment_pressure', 'credential_pressure',
   'investment_pressure', 'impersonation', 'remote_access', 'family_emergency', 'prize_claim',
-  // Text addressed to an assistant or model; weak, never decisive.
+  // Text addressed to an assistant or model (contract); weak, never decisive.
   'ai_instruction',
-  // Suspicious but outside the named categories.
+  // Suspicious but outside the named categories (contract v2.1, contract).
   'other_concern',
 ] as const;
 export const patterns = [
@@ -43,12 +44,19 @@ export interface Grant {
 export interface Envelope { session_id?: string; generation?: number; consent?: Grant }
 export interface PngFrame extends FrameContext, Envelope { image: string }
 export interface TextLine { text: string; x: number; y: number; w: number; h: number }
-// Native helper output. App, bundle, title and URL are best-effort and
-// absent when unknown. scope says what the text covers: with 'display' the text
-// spans the whole screen and the app/window fields only describe the frontmost
-// app, so the text must not be attributed to that app alone.
+export interface EvidenceRegion { x: number; y: number; w: number; h: number; source: 'rules' | 'local' }
+// Native helper output (u09/nr4). App, bundle, title and URL are best-effort and
+// absent when unknown. The primary text is the frontmost window; display text
+// spans the whole screen, so metadata must not be attributed to it alone.
+// Voice frames carry recognised speech only; accessibility frames carry the
+// same frontmost-window provenance as native text frames.
 export interface TextFrame extends Envelope {
-  frame_id: string; source: 'native'; text: string; lines?: TextLine[];
+  frame_id: string; source: 'native' | 'voice' | 'accessibility'; text: string; lines?: TextLine[];
+  // Voice only: the audio the segment came from (hf8).
+  voice_origin?: 'system' | 'microphone';
+  // Display OCR is local-only context. It is never an implicit cloud excerpt.
+  display_text?: string; display_lines?: TextLine[];
+  evidence_regions?: EvidenceRegion[];
   app?: string | null; bundle_id?: string | null; window_title?: string | null; url?: string | null;
   captured_at: string; scope?: 'display' | 'window';
   // Set by the integration when text or url were cut to fit the wire limits; a
@@ -78,22 +86,47 @@ export interface RouteStep {
   cost: { known: boolean; usd: number };
   cached: boolean;
   versions: { policy: number; prompt: number; schema: number };
-  // What formed the cloud excerpt: rule-matched spans, or a verbatim model quote.
+  // What formed the cloud excerpt: rule-matched spans, or a verbatim model quote (d3l).
   excerpt_source?: 'rules' | 'quote';
+  // Geometry is deliberately count-only in traces; no OCR text travels here.
+  regions?: number;
   // Served from a rehearsal recording (demo safety net), never a live call.
   replayed?: boolean;
+  // Decision-model judge (5qp): the provider's class distribution. Agreement, not
+  // probability of correctness; never a routing input, never spoken or sent.
+  judge_meta?: JudgeMeta;
+}
+export interface JudgeMeta {
+  classes: Partial<Record<'benign' | 'suspicious' | 'unknown', number>>;
+  concentration: number;
+  provider_confidence: number | null;
+  calibrated: false;
+  basis: 'provider_distribution';
+}
+const probability = (value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) throw Error('Invalid probability');
+  return value;
+};
+export function parseJudgeMeta(input: unknown): JudgeMeta {
+  const value = record(input);
+  const raw = record(value.classes);
+  const classes: JudgeMeta['classes'] = {};
+  for (const key of Object.keys(raw)) classes[oneOf(key, ['benign', 'suspicious', 'unknown'] as const)] = probability(raw[key]);
+  if (value.calibrated !== false || value.basis !== 'provider_distribution') throw Error('Judge distribution must be marked uncalibrated');
+  return { classes, concentration: probability(value.concentration), provider_confidence: value.provider_confidence === null ? null : probability(value.provider_confidence), calibrated: false, basis: 'provider_distribution' };
 }
 export interface Assessment extends FrameContext {
   status: Status;
   reasons: Reason[];
   evidence: string[];
+  evidence_regions?: number;
   message: string;
   analyzer: Analyzer;
   media_origin: 'not_assessed';
   route: Route;
   duration_ms: number;
   trace: RouteStep[];
-  // Routing outcome for fixed local templates: table row, cloud pattern and verdict.
+  // Routing outcome for fixed local templates (ztq): table row, cloud pattern and verdict.
   policy_row?: string;
   pattern?: Pattern;
   verdict?: 'scam' | 'suspicious' | 'benign' | 'unclear';
@@ -103,7 +136,8 @@ export interface EventSummary {
   created_at: string;
   status: Status;
   reasons: Reason[];
-  action: 'shown' | 'paused';
+  // dismissed: the person chose "I'm fine" on the native banner (x3k).
+  action: 'shown' | 'paused' | 'dismissed';
   source: Source;
   route: Route;
   duration_ms: number;
@@ -134,7 +168,7 @@ export function analyzeText(text: string, context: FrameContext, options: RuleOp
   const lined = text.replace(/[^\S\n]+/g, ' ').replace(/ ?\n[\s]*/g, '\n').trim();
   const findings = findRules(lined, options);
   const reasons: Reason[] = findings.map((finding) => finding.reason);
-  // Evidence is a window around what each rule matched, at most three.
+  // Evidence is a window around what each rule matched (F4, contract), at most three.
   const evidence = findings.slice(0, 3).map((finding) => finding.evidence);
   const status: Status = reasons.length ? 'concern' : (normalized.match(/[a-z]/gi)?.length ?? 0) < 4 ? 'inconclusive' : 'no_signal';
   return { ...makeUnavailable(context), status, reasons, evidence, message: messages[status] };
@@ -210,6 +244,11 @@ export function parseRouteStep(input: unknown): RouteStep {
     if (tier !== 'cloud') throw Error('Only cloud steps carry an excerpt source');
     step.excerpt_source = oneOf(value.excerpt_source, ['rules', 'quote'] as const);
   }
+  if (value.regions !== undefined) step.regions = count(value.regions, MAX_LINES);
+  if (value.judge_meta !== undefined) {
+    if (tier !== 'cloud') throw Error('Only cloud steps carry a judge distribution');
+    step.judge_meta = parseJudgeMeta(value.judge_meta);
+  }
   if (value.payload_sha256 !== undefined) {
     if (typeof value.payload_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.payload_sha256)) throw Error('Invalid payload hash');
     step.payload_sha256 = value.payload_sha256;
@@ -232,11 +271,11 @@ export function parseAssessment(input: unknown): Assessment {
   const trace = value.trace === undefined ? [] : value.trace;
   if (!Array.isArray(trace) || trace.length > 3) throw Error('Invalid trace');
   const steps = trace.map(parseRouteStep);
-  // Fixed tier order rules -> local-model -> cloud, each at most once.
+  // Fixed tier order rules -> local-model -> cloud, each at most once (the team hjm).
   const order = steps.map((step) => tiers.indexOf(step.tier));
   if (order.some((rank, index) => index > 0 && rank <= order[index - 1])) throw Error('Trace tiers out of order or duplicated');
   // A model or cloud route must carry the step that decided it, so remote calls,
-  // bytes and cost cannot disappear from the record.
+  // bytes and cost cannot disappear from the record (the team F-TRACE).
   if (route === 'local-model' && !steps.some((step) => step.tier === 'local-model' && step.outcome !== 'skipped')) throw Error('Missing local-model step');
   if (route === 'cloud' && !steps.some((step) => step.tier === 'cloud' && step.outcome !== 'skipped')) throw Error('Missing cloud step');
   return {
@@ -244,6 +283,7 @@ export function parseAssessment(input: unknown): Assessment {
     evidence: value.evidence.map((item) => boundedString(item, EVIDENCE_SPAN)), message: boundedString(value.message, 512),
     analyzer, media_origin: 'not_assessed', route, duration_ms: duration(value.duration_ms),
     trace: steps,
+    ...(value.evidence_regions === undefined ? {} : { evidence_regions: count(value.evidence_regions, MAX_LINES) }),
     ...(value.policy_row === undefined ? {} : { policy_row: oneOf(value.policy_row, policyRows) }),
     ...(value.pattern === undefined ? {} : { pattern: oneOf(value.pattern, patterns) }),
     ...(value.verdict === undefined ? {} : { verdict: oneOf(value.verdict, ['scam', 'suspicious', 'benign', 'unclear'] as const) }),
@@ -278,15 +318,20 @@ function coordinate(value: unknown): number {
 }
 export function parseTextFrame(input: unknown): TextFrame {
   const value = record(input);
-  const fields = new Set(['frame_id', 'source', 'session_id', 'generation', 'consent', 'text', 'lines', 'app', 'bundle_id', 'window_title', 'url', 'captured_at', 'scope', 'truncated', 'url_status']);
+  const fields = new Set(['frame_id', 'source', 'session_id', 'generation', 'consent', 'text', 'lines', 'display_text', 'display_lines', 'evidence_regions', 'app', 'bundle_id', 'window_title', 'url', 'captured_at', 'scope', 'truncated', 'url_status', 'voice_origin']);
   if (Object.keys(value).some((key) => !fields.has(key))) throw Error('Unknown TextFrame field');
-  if (value.source !== 'native') throw Error('Text frames come from the native helper');
+  const source = oneOf(value.source, ['native', 'voice', 'accessibility'] as const);
+  // Speech has no app, window, URL, lines or display: their presence is a bad frame.
+  const screenOnly = ['lines', 'display_text', 'display_lines', 'evidence_regions', 'app', 'bundle_id', 'window_title', 'url', 'scope', 'url_status'];
+  if (source === 'voice' && screenOnly.some((key) => value[key] !== undefined)) throw Error('Voice frames carry no screen metadata');
+  if (source !== 'voice' && value.voice_origin !== undefined) throw Error('Only voice frames carry a voice origin');
   // Empty text is valid (blank screen) and analyzes as inconclusive.
   if (typeof value.text !== 'string' || new TextEncoder().encode(value.text).length > MAX_TEXT) throw Error('Invalid frame text');
   const frame: TextFrame = {
-    frame_id: boundedString(value.frame_id), source: 'native', ...parseEnvelope(value), text: value.text,
+    frame_id: boundedString(value.frame_id), source, ...parseEnvelope(value), text: value.text,
     captured_at: timestamp(value.captured_at),
   };
+  if (value.voice_origin !== undefined) frame.voice_origin = oneOf(value.voice_origin, ['system', 'microphone'] as const);
   const optional = (key: 'app' | 'bundle_id' | 'window_title' | 'url', maximum: number) => {
     const item = value[key];
     if (item === undefined) return;
@@ -308,14 +353,33 @@ export function parseTextFrame(input: unknown): TextFrame {
     frame.url_status = status;
   }
   if (value.lines !== undefined) {
-    if (!Array.isArray(value.lines) || value.lines.length > MAX_LINES) throw Error('Invalid lines');
-    frame.lines = value.lines.map((item) => {
-      const line = record(item);
-      if (typeof line.text !== 'string' || line.text.length > 1024) throw Error('Invalid line text');
-      return { text: line.text, x: coordinate(line.x), y: coordinate(line.y), w: coordinate(line.w), h: coordinate(line.h) };
+    frame.lines = parseLines(value.lines);
+  }
+  if (value.display_text !== undefined) {
+    if (typeof value.display_text !== 'string' || new TextEncoder().encode(value.display_text).length > MAX_TEXT) throw Error('Invalid display text');
+    frame.display_text = value.display_text;
+  }
+  if (value.display_lines !== undefined) frame.display_lines = parseLines(value.display_lines);
+  if (value.evidence_regions !== undefined) {
+    if (!Array.isArray(value.evidence_regions) || value.evidence_regions.length > 3) throw Error('Invalid evidence regions');
+    frame.evidence_regions = value.evidence_regions.map((item) => {
+      const region = record(item);
+      const w = coordinate(region.w);
+      const h = coordinate(region.h);
+      if (w === 0 || h === 0) throw Error('Invalid evidence region size');
+      return { x: coordinate(region.x), y: coordinate(region.y), w, h, source: oneOf(region.source, ['rules', 'local'] as const) };
     });
   }
   return frame;
+}
+
+function parseLines(input: unknown): TextLine[] {
+  if (!Array.isArray(input) || input.length > MAX_LINES) throw Error('Invalid lines');
+  return input.map((item) => {
+      const line = record(item);
+      if (typeof line.text !== 'string' || line.text.length > 1024) throw Error('Invalid line text');
+      return { text: line.text, x: coordinate(line.x), y: coordinate(line.y), w: coordinate(line.w), h: coordinate(line.h) };
+  });
 }
 
 // Called immediately before any cloud dispatch: shape was checked at decode;
@@ -333,7 +397,7 @@ export function parseEvent(input: unknown): EventSummary {
   const created_at = timestamp(value.created_at);
   return {
     id: boundedString(value.id), created_at, ...outcome(value),
-    action: oneOf(value.action, ['shown', 'paused']), source: oneOf(value.source, sources),
+    action: oneOf(value.action, ['shown', 'paused', 'dismissed']), source: oneOf(value.source, sources),
     route: oneOf(value.route, routes), duration_ms: duration(value.duration_ms),
   };
 }

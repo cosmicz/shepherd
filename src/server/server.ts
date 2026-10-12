@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 
 import { OcrAnalyzer } from '../adapters/ocr.ts';
 import { AnalysisCancelled, type AnalyzerPort } from '../application/analyzer.ts';
+import type { ObservationRecorder } from '../application/observation.ts';
 import { makeUnavailable, parseAssessment, type Frame } from '../domain/assessment.ts';
 import { companionPage, companionScriptFor } from './companion.ts';
 import { GrantError, type GrantRegistry } from './consent.ts';
@@ -12,6 +13,8 @@ import { decodeFrame, MAX_BODY_BYTES } from './frame.ts';
 import { tracePage, traceScript, type TraceHub } from './trace.ts';
 import type { MessagesFamilyAlert } from '../adapters/family.ts';
 import { oneOf, patterns } from '../domain/assessment.ts';
+import type { BannerPort } from '../adapters/banner.ts';
+import { patternLabels, speechText, type Persona } from '../domain/templates.ts';
 
 // Compiled browser-safe runtime modules, served to the companion page. Same
 // relative location from src/server (tsx) and dist/server (built).
@@ -73,9 +76,13 @@ function matchesToken(value: string | string[] | undefined, token: string): bool
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
-export async function startServer(options: { port?: number; analyzer?: AnalyzerPort; consent?: GrantRegistry; trace?: TraceHub; family?: MessagesFamilyAlert; quoteExcerpts?: boolean } = {}) {
+// Read side of the private journal (su6) for the local trace inspector (u6w):
+// one recorded observation with its annotations, or undefined when not recorded.
+export interface JournalReader { read(id: string): Promise<unknown | undefined> }
+
+export async function startServer(options: { port?: number; analyzer?: AnalyzerPort; consent?: GrantRegistry; trace?: TraceHub; family?: MessagesFamilyAlert; recorder?: ObservationRecorder; quoteExcerpts?: boolean; banner?: BannerPort; persona?: Persona; journal?: JournalReader } = {}) {
   const analyzer = options.analyzer ?? new OcrAnalyzer();
-  const { consent, trace, family } = options;
+  const { consent, trace, family, recorder } = options;
   const token = randomBytes(32).toString('hex');
   let origin = '';
   let busy = false;
@@ -119,7 +126,10 @@ export async function startServer(options: { port?: number; analyzer?: AnalyzerP
       // Cancellation ends the response without a body; the client discards it.
       if (cancelled || (abort.signal.aborted && !timedOut)) { response.writeHead(204, { 'Cache-Control': 'no-store' }); response.end(); return; }
       const result = abort.signal.aborted ? makeUnavailable(frame) : assessment;
-      trace?.recordAssessment(result);
+      trace?.recordAssessment(result, frame);
+      // Recording is an independent, default-off local decision. Its failures
+      // are contained by the recorder and never change the analysis response.
+      try { await recorder?.record(frame, result); } catch { /* recorder owns its private error state */ }
       send(response, 200, result);
     } finally {
       clearTimeout(timeout);
@@ -148,18 +158,65 @@ export async function startServer(options: { port?: number; analyzer?: AnalyzerP
         consent.revoke(decodeURIComponent(request.url.slice('/api/consent/'.length)));
         response.writeHead(204, { 'Cache-Control': 'no-store' });
         response.end();
+      } else if (request.method === 'GET' && request.url === '/api/journal') {
+        if (!authorized(request)) throw new HttpError(403);
+        send(response, 200, { available: !!recorder, enabled: recorder?.enabled ?? false });
+      } else if (request.method === 'PUT' && request.url === '/api/journal') {
+        if (!authorized(request)) throw new HttpError(403);
+        const body = await readJson(request, 64);
+        if (!recorder || typeof (body as Record<string, unknown>)?.enabled !== 'boolean') throw new HttpError(409);
+        recorder.setEnabled((body as { enabled: boolean }).enabled);
+        send(response, 200, { available: true, enabled: recorder.enabled });
+      } else if (request.method === 'DELETE' && request.url === '/api/journal') {
+        if (!authorized(request)) throw new HttpError(403);
+        if (!recorder) throw new HttpError(409);
+        await recorder.deleteAll();
+        response.writeHead(204, { 'Cache-Control': 'no-store' });
+        response.end();
       } else if (request.method === 'POST' && request.url === '/api/family-alert/test') {
         if (!authorized(request)) throw new HttpError(403);
         await readJson(request, 64);
         send(response, 200, { status: family ? await family.test() : 'unavailable' });
       } else if (request.method === 'POST' && request.url === '/api/family-alert') {
-        // Only a closed pattern code is accepted; the runtime renders the fixed
-        // family template from local configuration.
+        // Only closed pattern and medium codes are accepted; the runtime renders
+        // the fixed family template from local configuration.
         if (!authorized(request)) throw new HttpError(403);
-        const body = await readJson(request, 1024);
+        const body = await readJson(request, 1024) as Record<string, unknown> | null;
         let pattern;
-        try { pattern = oneOf((body as Record<string, unknown>)?.pattern, patterns); } catch { throw new HttpError(400); }
-        send(response, 200, { status: family ? await family.notify(pattern) : 'unavailable' });
+        let medium: 'screen' | 'voice';
+        try {
+          pattern = oneOf(body?.pattern, patterns);
+          medium = body?.medium === undefined ? 'screen' : oneOf(body.medium, ['screen', 'voice'] as const);
+        } catch { throw new HttpError(400); }
+        send(response, 200, { status: family ? await family.notify(pattern, medium) : 'unavailable' });
+      } else if (request.method === 'POST' && request.url === '/api/banner') {
+        // Native banner (x3k): closed kind, pattern and medium codes only; the runtime
+        // renders the fixed template and waits for the person's choice.
+        if (!authorized(request)) throw new HttpError(403);
+        const body = await readJson(request, 1024) as Record<string, unknown> | null;
+        let kind: 'scam' | 'suspicious';
+        let pattern;
+        let medium: 'screen' | 'voice';
+        try {
+          kind = oneOf(body?.kind, ['scam', 'suspicious'] as const);
+          pattern = oneOf(body?.pattern, patterns);
+          medium = body?.medium === undefined ? 'screen' : oneOf(body.medium, ['screen', 'voice'] as const);
+        } catch { throw new HttpError(400); }
+        if (!options.banner) { send(response, 200, { action: 'unavailable' }); return; }
+        const persona = options.persona ?? {};
+        let text: string;
+        try { text = speechText(kind, pattern, persona, medium); } catch { text = speechText('suspicious', pattern, persona, medium); }
+        send(response, 200, { action: await options.banner.show(text, patternLabels[pattern]) });
+      } else if (request.method === 'GET' && request.url?.startsWith('/api/journal/observation/') && options.journal) {
+        // Content-bearing and local-only (u6w): beyond the global Host, Origin and
+        // Sec-Fetch-Site guard, the token header is required (a cross-origin page
+        // cannot send it without a preflight this server never grants). Never SSE.
+        if (!matchesToken(request.headers['x-shepherd-token'], token)) throw new HttpError(403);
+        const id = decodeURIComponent(request.url.slice('/api/journal/observation/'.length));
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new HttpError(400);
+        const entry = await options.journal.read(id);
+        if (entry === undefined) throw new HttpError(404);
+        send(response, 200, entry);
       } else if (request.method === 'GET' && request.url === '/companion') {
         sendText(response, 'text/html; charset=utf-8', companionPage, pagePolicy);
       } else if (request.method === 'GET' && request.url === '/companion.js') {
@@ -169,7 +226,8 @@ export async function startServer(options: { port?: number; analyzer?: AnalyzerP
         try { body = await readFile(new URL((request.url as string).slice('/dist/'.length), DIST), 'utf8'); } catch { throw new HttpError(404); }
         sendText(response, 'text/javascript; charset=utf-8', body, "default-src 'none'");
       } else if (request.method === 'GET' && request.url === '/trace' && trace) {
-        sendText(response, 'text/html; charset=utf-8', tracePage, "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'");
+        // img-src data: lets the local inspector show journal captures (u6w); the judge view has none.
+        sendText(response, 'text/html; charset=utf-8', tracePage, "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'");
       } else if (request.method === 'GET' && request.url === '/trace.js' && trace) {
         sendText(response, 'text/javascript; charset=utf-8', traceScript, "default-src 'none'");
       } else if (request.method === 'GET' && request.url?.startsWith('/trace/events?') && trace) {
@@ -196,6 +254,7 @@ export async function startServer(options: { port?: number; analyzer?: AnalyzerP
     origin,
     close: async () => {
       currentAbort?.abort();
+      options.banner?.close();
       const closed = new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
       server.closeAllConnections();
       await closed;

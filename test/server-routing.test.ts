@@ -105,7 +105,7 @@ test('HttpAnalyzer surfaces a cancelled analysis as AnalysisCancelled', async (t
   await assert.rejects(pending, AnalysisCancelled);
 });
 
-test('/trace page and SSE feed: token required, content-free events and cumulative counters', async (t) => {
+test('/trace page and SSE feed: token required, full local rows, cloud payloads only as counts, cumulative counters', async (t) => {
   const r = await rig();
   t.after(() => r.runtime.close());
   const page = await fetch(`${r.runtime.origin}/trace`);
@@ -123,7 +123,7 @@ test('/trace page and SSE feed: token required, content-free events and cumulati
   await r.register(grant('g7'));
   const text = 'Secret note 4417 about the garden party and private plans';
   await r.analyze({ ...frame(grant('g7')), text });
-  assert.equal(r.calls.cloud, 0, 'an unanchored screen is never sent');
+  assert.equal(r.calls.cloud, 0, 'an unanchored screen is never sent (contract)');
   // A frame whose rules evidence is screen text: evidence must not reach the feed either.
   await r.analyze({ ...frame(grant('g7')), text: 'Your account will be suspended today. Please buy gift cards now and send the codes.' });
   await new Promise((resolve) => setTimeout(resolve, 50));
@@ -131,8 +131,16 @@ test('/trace page and SSE feed: token required, content-free events and cumulati
   const all = received.join('');
   assert.match(all, /event: event/);
   assert.match(all, /event: attempt/);
-  // Distinctive phrases only: bare digits such as 4417 can occur in hashes and timings.
-  for (const fragment of ['Secret note', 'garden party', 'private plans', 'gift cards', 'suspended today']) assert.ok(!all.includes(fragment), `no screen text in the feed: ${fragment}`);
-  for (const field of ['"evidence"', '"text"', '"excerpt"', '"message"']) assert.ok(!all.includes(field), `no ${field} field in the feed`);
+  // The local feed is fully introspectible (operator direction, 16:00, 563b05e): the
+  // window text, evidence and message travel with each row. Cloud attempts still
+  // carry only byte counts and hashes, never the excerpt that left.
+  const chunks = all.split('\n\n');
+  const rows = chunks.filter((chunk) => chunk.startsWith('event: event'));
+  const attempts = chunks.filter((chunk) => chunk.startsWith('event: attempt'));
+  assert.ok(rows.length >= 2 && attempts.length >= 1);
+  for (const fragment of ['gift cards', 'suspended today']) assert.ok(rows.some((row) => row.includes(fragment)), `window text in a row: ${fragment}`);
+  for (const field of ['"evidence"', '"text"', '"message"', '"page"', '"window_title"']) assert.ok(rows.every((row) => row.includes(field)), `${field} on every row`);
+  for (const fragment of ['Secret note', 'garden party', 'private plans', 'gift cards', 'suspended today']) assert.ok(!attempts.some((a) => a.includes(fragment)), `no screen text in a cloud attempt: ${fragment}`);
+  for (const field of ['"excerpt"', '"payload"', '"text"']) assert.ok(!attempts.some((a) => a.includes(field)), `no ${field} field in a cloud attempt`);
   assert.deepEqual([r.trace.counters.remote_calls, r.trace.counters.bytes_out, r.trace.counters.cost_known_usd], [1, 640, 0.005]);
 });

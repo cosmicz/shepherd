@@ -1,0 +1,33 @@
+#+title: Shepherd Accessibility observer
+
+* Build
+
+#+begin_src sh
+mkdir -p tools/shepherd-accessibility/build
+swiftc -O -framework AppKit -framework ApplicationServices \
+  tools/shepherd-accessibility/main.swift \
+  -o tools/shepherd-accessibility/build/shepherd-accessibility
+#+end_src
+
+Do not run the helper until the operator has requested and approved the macOS
+Accessibility permission prompt.  It reads accessibility attributes from the
+frontmost application's focused window; it never reads pixels, makes a network
+request, or writes a capture file.
+
+* Output and bounds
+
+Each JSON line contains foreground app provenance, reading-order text nodes and
+their point-space bounds, and a =change= or =interval= reason.  The default
+walk is capped at depth 12 and 2,000 nodes.  URL metadata is an HTTP(S) browser
+address field only when the AX tree exposes one; otherwise it is null with an
+=absent= status.
+
+* Runtime flags
+
+Set ~SHEPHERD_ACCESSIBILITY=1~ on the Node runtime to start this observer.
+
+- ~--once~ reads one eligible focused window after approval.
+- ~--interval-ms 250...60000~ changes the default 1,000 ms maximum quiet period.
+- ~--depth 1...50~ and ~--max-nodes 1...2000~ tighten or alter traversal bounds.
+- ~--exclude-nonce nonce~ excludes only a title ending in ~Shepherd nonce~.  The
+  companion must use a fresh per-session nonce of at least 16 characters.

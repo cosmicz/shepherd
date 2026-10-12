@@ -13,7 +13,9 @@ test('companion starts paused, is keyboard reachable and links to the trace', as
     await expect(page.locator('#state')).toHaveText('Paused. Nothing is being watched.');
     await expect(page.locator('#start')).toBeEnabled();
     await expect(page.locator('#pause')).toBeDisabled();
-    await expect(page.locator('#grant')).toBeDisabled();
+    // d29: cloud permission can be chosen before Start; nothing is registered yet.
+    await expect(page.locator('#grant')).toBeEnabled();
+    await expect(page.locator('#revoke')).toBeDisabled();
     await expect(page.locator('#scope')).toContainText('Nothing else leaves this computer.');
     await expect(page.locator('a[href="/trace"]')).toBeVisible();
     await page.keyboard.press('Tab');
@@ -83,5 +85,100 @@ test('family test message and grant expiry with Extend', async ({ page }) => {
     await page.evaluate(() => { (window as unknown as { __shepherdGrantMs: number }).__shepherdGrantMs = 3600_000; });
     await page.click('#grant');
     await expect(page.locator('#consent')).toContainText('Allowed for this session');
+  } finally { await runtime.close(); }
+});
+
+// d29: allow before Start, bind on Start, Stop allowing always revokes and prevents the next bind.
+test('cloud permission chosen before Start binds to the capture on Start; Stop allowing revokes and stops rebinding', async ({ page }) => {
+  const consent = new GrantRegistry();
+  const registered: Array<{ id: string; source: string; generation: number }> = [];
+  const revoked: string[] = [];
+  const register = consent.register.bind(consent);
+  consent.register = (input: unknown) => { const grant = register(input); registered.push({ id: grant.id, source: grant.source, generation: grant.generation }); return grant; };
+  consent.onRevoke((id) => revoked.push(id));
+  const runtime = await startServer({ port: 0, consent, analyzer: {
+    analyze: async (frame) => analyzeText('Weekly garden club newsletter with tomato tips.', frame),
+    capabilities: async () => [{ id: 'local-ocr-rules', kind: 'rules', route: 'local', available: true }],
+  } });
+  try {
+    await page.goto(`${runtime.origin}/companion`);
+    await page.evaluate(() => {
+      navigator.mediaDevices.getDisplayMedia = async () => {
+        const canvas = Object.assign(document.createElement('canvas'), { width: 640, height: 360 });
+        const context = canvas.getContext('2d') as CanvasRenderingContext2D;
+        const paint = () => { context.fillStyle = '#fff'; context.fillRect(0, 0, 640, 360); context.fillStyle = '#000'; context.font = '28px sans-serif'; context.fillText('Weekly garden club newsletter', 20, 80); };
+        paint();
+        setInterval(paint, 100);
+        return canvas.captureStream(10);
+      };
+    });
+    // Before Start: a preference only, with the scope statement shown.
+    await page.click('#grant');
+    await expect(page.locator('#consent')).toContainText('Allowed once you start watching');
+    await expect(page.locator('#consent')).toContainText('Nothing else leaves this computer.');
+    await expect(page.locator('#grant')).toBeDisabled();
+    await expect(page.locator('#revoke')).toBeEnabled();
+    expect(registered).toEqual([]);
+    // Start binds the real grant to this capture's source and generation, and repeats the scope.
+    await page.click('#start');
+    await expect(page.locator('#consent')).toContainText('Allowed for this session', { timeout: 15_000 });
+    await expect(page.locator('#consent')).toContainText('Nothing else leaves this computer.');
+    expect(registered).toHaveLength(1);
+    // Same source rule as the frames: the canvas stand-in reports no browser surface, so 'window'.
+    expect(registered[0].source).toBe('window');
+    // Stop allowing revokes it and clears the preference.
+    await page.click('#revoke');
+    await expect(page.locator('#consent')).toContainText('Not allowed');
+    await expect.poll(() => revoked).toContain(registered[0].id);
+    // The next Start does not bind anything.
+    await page.click('#pause');
+    await page.click('#start');
+    await expect(page.locator('#pause')).toBeEnabled({ timeout: 15_000 });
+    await page.waitForTimeout(500);
+    expect(registered).toHaveLength(1);
+    await expect(page.locator('#consent')).toContainText('Not allowed');
+  } finally { await runtime.close(); }
+});
+
+// d29 race (the team): Stop allowing while the bind's registration is in flight
+// must leave no live grant, and no frame may carry one.
+test('Stop allowing during the in-flight bind revokes the late grant; no frame carries it', async ({ page }) => {
+  const consent = new GrantRegistry();
+  const registered: string[] = [];
+  const revoked: string[] = [];
+  const carried: string[] = [];
+  const register = consent.register.bind(consent);
+  consent.register = (input: unknown) => { const grant = register(input); registered.push(grant.id); return grant; };
+  consent.onRevoke((id) => revoked.push(id));
+  const runtime = await startServer({ port: 0, consent, analyzer: {
+    analyze: async (frame) => { if (frame.consent) carried.push(frame.consent.id); return analyzeText('Weekly garden club newsletter with tomato tips.', frame); },
+    capabilities: async () => [{ id: 'local-ocr-rules', kind: 'rules', route: 'local', available: true }],
+  } });
+  try {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route('**/api/consent', async (route) => { if (route.request().method() === 'POST') await held; await route.continue(); });
+    await page.goto(`${runtime.origin}/companion`);
+    await page.evaluate(() => {
+      navigator.mediaDevices.getDisplayMedia = async () => {
+        const canvas = Object.assign(document.createElement('canvas'), { width: 640, height: 360 });
+        const context = canvas.getContext('2d') as CanvasRenderingContext2D;
+        const paint = () => { context.fillStyle = '#fff'; context.fillRect(0, 0, 640, 360); context.fillStyle = '#000'; context.font = '28px sans-serif'; context.fillText('Weekly garden club newsletter', 20, 80); };
+        paint();
+        setInterval(paint, 100);
+        return canvas.captureStream(10);
+      };
+    });
+    await page.click('#grant');
+    await page.click('#start');
+    await expect(page.locator('#pause')).toBeEnabled({ timeout: 15_000 });
+    await page.click('#revoke');
+    release();
+    await expect.poll(() => registered.length).toBe(1);
+    await expect.poll(() => revoked).toContain(registered[0]);
+    await expect(page.locator('#consent')).toContainText('Not allowed');
+    await page.waitForTimeout(1500);
+    expect(consent.live({ frame_id: 'x', source: 'window', image: '', consent: undefined } as never, Date.now())).toBe(false);
+    expect(carried).toEqual([]);
   } finally { await runtime.close(); }
 });

@@ -1,0 +1,23 @@
+#+title: Shepherd native alert banner
+
+* Build
+
+#+begin_src sh
+swiftc -O -framework AppKit tools/shepherd-banner/main.swift \
+  -o tools/shepherd-banner/shepherd-banner
+#+end_src
+
+The helper needs no privacy permission.  It is enabled only by the companion
+when =SHEPHERD_BANNER=1= and receives no screen text: =--text= is the companion's
+spoken template and =--pattern= is its policy label.
+
+* Contract
+
+#+begin_src sh
+shepherd-banner --text TEMPLATE --pattern LABEL \
+  --title '… Shepherd SESSION_NONCE' --timeout 45
+#+end_src
+
+It writes one JSON line to stdout: ={"action":"call"}=, ={"action":"fine"}=,
+or ={"action":"timeout"}=, then exits.  The title retains the per-session nonce
+so the screen helper can exclude the banner window by its exact suffix.

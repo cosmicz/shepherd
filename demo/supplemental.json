@@ -1,0 +1,8 @@
+{
+  "note": "Unmeasured fictional demo scenarios, separate from the frozen eight-page eval. Listed hosts appear only as inert simulated-address text, never as navigation targets. Feed presence is not a current-malware verdict.",
+  "pages": [
+    { "id": "account-review-image", "host": "account-review.localhost", "kind": "image-based phishing scenario" },
+    { "id": "device-update", "host": "device-update.localhost", "kind": "remote-access installation scenario" },
+    { "id": "community-photo", "host": "community.localhost", "kind": "benign image-rich control" }
+  ]
+}

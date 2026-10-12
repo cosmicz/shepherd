@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseAssessment, type Assessment, type RouteStep, type TextFrame } from '../src/domain/assessment.ts';
 import {
-  AnalysisCancelled, CloudGovernor, LocalModelError, RoutedAnalyzer,
+  AnalysisCancelled, CloudGovernor, evidenceRegions, LocalModelError, RoutedAnalyzer,
   type CloudJudgeOutcome, type CloudJudgePort, type ConsentPort, type LocalModelPort,
 } from '../src/application/routing.ts';
 
@@ -26,7 +26,7 @@ function frame(text: string, extra: Partial<TextFrame> = {}): TextFrame {
 
 type LocalPlan = { risk: 'low' | 'medium' | 'high'; reasons?: string[] } | 'unavailable' | 'malformed' | 'hang' | { invalid: unknown };
 type CloudPlan = { verdict: 'scam' | 'suspicious' | 'benign' | 'unclear' } | { fail: 'refusal' | 'rate_limit' } | 'hang';
-function harness(plan: { local?: LocalPlan; cloud?: CloudPlan; provider?: boolean; consent?: boolean | (() => boolean); governor?: CloudGovernor; extractFails?: boolean } = {}) {
+function harness(plan: { rulesDecide?: boolean; local?: LocalPlan; cloud?: CloudPlan; provider?: boolean; consent?: boolean | (() => boolean); governor?: CloudGovernor; extractFails?: boolean } = {}) {
   const calls = { local: 0, cloud: 0, attempts: [] as RouteStep[] };
   const local: LocalModelPort = {
     model: 'qwen3-8b-q4_k_m',
@@ -56,7 +56,7 @@ function harness(plan: { local?: LocalPlan; cloud?: CloudPlan; provider?: boolea
   const consent: ConsentPort = { live: () => (typeof plan.consent === 'function' ? plan.consent() : plan.consent ?? true) };
   const analyzer = new RoutedAnalyzer({
     extractor: { extract: async (input) => { if (plan.extractFails) throw Error('OCR failed'); return 'text' in input ? input.text : ''; } },
-    local, cloud, consent, governor: plan.governor, now: () => NOW,
+    local, cloud, consent, governor: plan.governor, now: () => NOW, rulesDecide: plan.rulesDecide,
     onAttempt: (step) => calls.attempts.push(step),
     deadlines: { local_ms: 40, cloud_ms: 40, total_ms: 200 },
     // These cases exercise routing rows 12-17 (no rules span), so the quote path is on.
@@ -73,7 +73,8 @@ const remote = (a: Assessment) => a.trace.reduce((sum, s) => sum + s.remote_call
 const rows: Array<[string, Parameters<typeof harness>[0], string, { row: string; status: string; route: string; tiers: string[] }, { local: number; cloud: number; remote: number }]> = [
   ['1 rules unavailable', { extractFails: true }, texts.none, { row: '1', status: 'unavailable', route: 'local', tiers: ['rules:unavailable'] }, { local: 0, cloud: 0, remote: 0 }],
   ['2 rules inconclusive', {}, texts.inconclusive, { row: '2', status: 'inconclusive', route: 'local', tiers: ['rules:inconclusive'] }, { local: 0, cloud: 0, remote: 0 }],
-  ['3 strong concern', {}, texts.strong, { row: '3', status: 'concern', route: 'local', tiers: ['rules:concern'] }, { local: 0, cloud: 0, remote: 0 }],
+  ['3 strong concern (rules decide)', { rulesDecide: true }, texts.strong, { row: '3', status: 'concern', route: 'local', tiers: ['rules:concern'] }, { local: 0, cloud: 0, remote: 0 }],
+  ['3 off: rules annotate only, strong is weak, local high', { local: { risk: 'high' } }, texts.strong, { row: '7', status: 'concern', route: 'local-model', tiers: ['rules:concern', 'local-model:concern'] }, { local: 1, cloud: 0, remote: 0 }],
   ['4 weak, local unavailable, gate open', { local: 'unavailable', cloud: { verdict: 'scam' } }, texts.weak, { row: '13', status: 'concern', route: 'cloud', tiers: ['rules:concern', 'local-model:failed/unavailable', 'cloud:concern'] }, { local: 1, cloud: 1, remote: 1 }],
   ['5 weak, local unavailable, no grant', { local: 'unavailable', consent: false }, texts.weak, { row: '5', status: 'inconclusive', route: 'local', tiers: ['rules:concern', 'local-model:failed/unavailable', 'cloud:skipped/no_consent'] }, { local: 1, cloud: 0, remote: 0 }],
   ['6 no signal, local malformed', { local: 'malformed' }, texts.none, { row: '6', status: 'inconclusive', route: 'local', tiers: ['rules:no_signal', 'local-model:failed/malformed'] }, { local: 1, cloud: 0, remote: 0 }],
@@ -106,6 +107,21 @@ for (const [name, plan, text, expected, counts] of rows) {
     if (result.status === 'concern') assert.ok(result.reasons.length > 0);
   });
 }
+
+test('matched display OCR geometry becomes a padded, count-only evidence region', async () => {
+  const h = harness({ rulesDecide: true }); // a rules-settled concern; regions are the subject here
+  const input = frame(texts.strong, {
+    display_text: texts.strong,
+    display_lines: [{ text: texts.strong, x: 10, y: 20, w: 300, h: 18 }],
+  });
+  assert.deepEqual(evidenceRegions(input, [texts.strong], undefined), [{ x: 0, y: 0, w: 334, h: 62, source: 'rules' }]);
+  const result = await run(h, input);
+  assert.equal(result.evidence_regions, 1);
+  assert.deepEqual(result.trace.map((step) => step.regions), [1]);
+  // The 24px padding is clipped only at the display origin; no text is copied
+  // into the trace or assessment accounting field.
+  assert.equal('evidence_regions' in result && typeof result.evidence_regions, 'number');
+});
 
 test('row 19: abort while the local model runs yields AnalysisCancelled, zero cloud calls', async () => {
   const h = harness({ local: 'hang' });

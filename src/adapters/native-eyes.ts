@@ -7,8 +7,10 @@ import { parseTextFrame, record, type TextFrame } from '../domain/assessment.ts'
 const MAX_TEXT_BYTES = 32 * 1024;
 const bundledHelperPath = fileURLToPath(new URL('../../tools/shepherd-eyes/build/shepherd-eyes', import.meta.url));
 const helperFields = new Set([
-  'frame_id', 'captured_at', 'app', 'bundle_id', 'window_title', 'url', 'text', 'lines',
-  'width', 'height', 'capture_ms', 'ocr_ms', 'excluded_windows', 'scope', 'reason',
+  'frame_id', 'captured_at', 'app', 'bundle_id', 'window_title', 'url',
+  'window_text', 'window_lines', 'window_width', 'window_height',
+  'display_text', 'display_lines', 'display_width', 'display_height',
+  'capture_ms', 'ocr_ms', 'excluded_windows', 'reason',
 ]);
 
 export interface NativeEyesChild {
@@ -22,7 +24,6 @@ export type NativeEyesLauncher = (executable: string, args: string[], options: S
 
 export interface NativeEyesOptions {
   executable?: string;
-  scope?: 'display' | 'window';
   fps?: number;
   include_app?: string;
   exclude_nonce?: string;
@@ -65,9 +66,10 @@ function boundedText(text: string): { text: string; lineCount: number; truncated
 function parseHelperLine(line: string): TextFrame {
   const raw = record(JSON.parse(line));
   if (Object.keys(raw).some((key) => !helperFields.has(key))) throw Error('Unknown native helper field');
-  if (typeof raw.text !== 'string') throw Error('Invalid native helper text');
+  if (typeof raw.window_text !== 'string' || typeof raw.display_text !== 'string') throw Error('Invalid native helper text');
 
-  const bounded = boundedText(raw.text);
+  const bounded = boundedText(raw.window_text);
+  const display = boundedText(raw.display_text);
   const rawUrl = raw.url;
   let url: string | null | undefined;
   let url_status: 'ok' | 'too_long' | 'absent';
@@ -93,14 +95,19 @@ function parseHelperLine(line: string): TextFrame {
     captured_at: raw.captured_at,
     url,
     url_status,
-    truncated: bounded.truncated || undefined,
+    truncated: bounded.truncated || display.truncated || undefined,
+    display_text: display.text,
   };
-  for (const key of ['app', 'bundle_id', 'window_title', 'scope'] as const) {
+  for (const key of ['app', 'bundle_id', 'window_title'] as const) {
     if (raw[key] !== undefined) frame[key] = raw[key];
   }
-  if (raw.lines !== undefined) {
-    if (!Array.isArray(raw.lines)) throw Error('Invalid native helper lines');
-    frame.lines = raw.lines.slice(0, bounded.lineCount);
+  if (!Array.isArray(raw.window_lines) || !Array.isArray(raw.display_lines)) throw Error('Invalid native helper lines');
+  frame.lines = raw.window_lines.slice(0, bounded.lineCount);
+  frame.display_lines = raw.display_lines.slice(0, display.lineCount);
+  for (const key of ['window_width', 'window_height', 'display_width', 'display_height'] as const) {
+    if (typeof raw[key] !== 'number' || !Number.isInteger(raw[key]) || raw[key] < 1 || raw[key] > 100_000) {
+      throw Error('Invalid native helper dimensions');
+    }
   }
   return parseTextFrame(frame);
 }
@@ -123,7 +130,7 @@ export class NativeEyesSource {
   start(): () => void {
     this.stopCurrent?.();
     const generation = ++this.generation;
-    const args = ['--scope', this.options.scope ?? 'display'];
+    const args: string[] = [];
     if (this.options.fps !== undefined) args.push('--fps', String(this.options.fps));
     if (this.options.include_app) args.push('--include-app', this.options.include_app);
     if (this.options.exclude_nonce) args.push('--exclude-nonce', this.options.exclude_nonce);

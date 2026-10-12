@@ -6,7 +6,7 @@ import {
 } from '../src/domain/assessment.ts';
 import { decodeFrame } from '../src/server/frame.ts';
 
-// A response exactly as the rules-only runtime before model routing serialized it (no trace).
+// A response exactly as the rules-only runtime at 1d34e8a serialized it (no trace).
 const legacy = {
   frame_id: 'legacy-1', source: 'example', status: 'concern', reasons: ['support_pressure'],
   evidence: ['Your computer is infected. Call support immediately'],
@@ -23,14 +23,26 @@ const cloud = {
   trace: [rulesStep, { ...rulesStep, tier: 'local-model', analyzer_id: 'local-model', outcome: 'inconclusive' }, cloudStep],
 };
 
-test('versions are contract v2.1 values', () => {
+test('versions are the contract v2.1 values (r81)', () => {
   assert.deepEqual(versions, { policy: 3, prompt: 3, schema: 3 });
 });
 
-test('a legacy rules-only response still parses unchanged, with an empty trace', () => {
+test('a 1d34e8a rules-only response still parses unchanged, with an empty trace', () => {
   const parsed = parseAssessment(structuredClone(legacy));
   assert.deepEqual({ ...parsed, trace: undefined }, { ...legacy, trace: undefined });
   assert.deepEqual(parsed.trace, []);
+});
+
+test('optional evidence-region accounting is additive and content-free in trace', () => {
+  const parsed = parseAssessment({ ...legacy, evidence_regions: 2, trace: [{ ...rulesStep, regions: 2 }] });
+  assert.equal(parsed.evidence_regions, 2);
+  assert.equal(parsed.trace[0].regions, 2);
+  for (const value of [
+    { ...legacy, evidence_regions: -1 },
+    { ...legacy, evidence_regions: 1.5 },
+    { ...legacy, trace: [{ ...rulesStep, regions: -1 }] },
+    { ...legacy, trace: [{ ...rulesStep, regions: 'two' }] },
+  ]) assert.throws(() => parseAssessment(value));
 });
 
 test('model and cloud routes parse with their analyzer and trace', () => {
@@ -66,7 +78,7 @@ test('malformed routes, analyzers, reasons and traces are rejected', () => {
     { ...legacy, evidence: ['x'.repeat(201)] },
     { ...legacy, evidence: ['a', 'b', 'c', 'd'] },
     { ...legacy, source: 'monitor' },
-    // A model or cloud route must carry the step that decided it.
+    // the team F-TRACE: a model or cloud route must carry the step that decided it.
     { ...cloud, trace: undefined },
     { ...cloud, trace: [rulesStep] },
     { ...cloud, trace: [rulesStep, { ...cloudStep, outcome: 'skipped', failure_kind: 'no_consent', remote_calls: 0, bytes_out: 0, cost: { known: true, usd: 0 } }] },
@@ -120,6 +132,14 @@ test('decodeFrame accepts a native TextFrame and rejects malformed ones', () => 
   assert.equal(sparse.source, 'native');
   assert.ok('text' in sparse && sparse.text === '' && sparse.app === undefined && sparse.url === undefined && sparse.scope === undefined);
   assert.equal(decodeFrame(textFrame).frame.source === 'native' && (decodeFrame(textFrame).frame as { scope?: string }).scope, 'display');
+  const dual = decodeFrame({ ...textFrame,
+    display_text: 'A local-only notification',
+    display_lines: [{ text: 'A local-only notification', x: 20, y: 30, w: 40, h: 18 }],
+    evidence_regions: [{ x: 0, y: 6, w: 100, h: 80, source: 'rules' }],
+  }).frame as { display_text?: string; display_lines?: unknown[]; evidence_regions?: unknown[] };
+  assert.equal(dual.display_text, 'A local-only notification');
+  assert.equal(dual.display_lines?.length, 1);
+  assert.equal(dual.evidence_regions?.length, 1);
   const bad: unknown[] = [
     { ...textFrame, source: 'window' },
     { ...textFrame, text: 7 },
@@ -134,6 +154,10 @@ test('decodeFrame accepts a native TextFrame and rejects malformed ones', () => 
     { ...textFrame, bundle_id: 42 },
     { ...textFrame, captured_at: undefined },
     { ...textFrame, generation: -1 },
+    { ...textFrame, display_text: 'x'.repeat(32 * 1024 + 1) },
+    { ...textFrame, display_lines: [{ text: 'x', x: -1, y: 0, w: 1, h: 1 }] },
+    { ...textFrame, evidence_regions: [{ x: 0, y: 0, w: 1, h: 1, source: 'display' }] },
+    { ...textFrame, evidence_regions: [{ x: 0, y: 0, w: 0, h: 1, source: 'rules' }] },
     { frame_id: 'png-native', source: 'native', image: 'data:image/png;base64,AAAA' },
   ];
   for (const value of bad) assert.throws(() => decodeFrame(value), Error, JSON.stringify(value).slice(0, 120));

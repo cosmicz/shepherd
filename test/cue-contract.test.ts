@@ -1,6 +1,6 @@
-// One verbatim-cue contract: after whitespace
+// One verbatim-cue contract (r81 post-merge, the team 14:48): after whitespace
 // normalisation the cue is 8 to 160 characters and a substring of the frame text
-// within the 4,096-character window the local model saw. The local adapter, the
+// within the 4,096-character window the local model saw. The tea adapter, the
 // bridge and routing must give identical outcomes on every boundary.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -49,11 +49,11 @@ for (const [name, text, cue, valid] of cases) {
     if (valid) assert.deepEqual(((await bridged.assess(text, new AbortController().signal)) as { reasons: string[] }).reasons, ['other_concern'], 'bridge');
     else await assert.rejects(bridged.assess(text, new AbortController().signal), /malformed/, 'bridge');
     const routed = await new RoutedAnalyzer({ extractor: { extract: async (f) => ('text' in f ? f.text : '') }, local: new LlamaLocalModel({ fetchImpl: reply(cue) }) }).analyze(frame(text), new AbortController().signal);
-    assert.deepEqual([routed.policy_row, routed.status], valid ? ['12d', 'concern'] : ['6', 'inconclusive'], 'routing via the bridge');
+    assert.deepEqual([routed.policy_row, routed.status], valid ? ['12d', 'inconclusive'] : ['6', 'inconclusive'], 'routing via the bridge');
     // Routing alone, over a port that skips the adapter's own check.
     const direct = await new RoutedAnalyzer({ extractor: { extract: async (f) => ('text' in f ? f.text : '') },
       local: { model: 'fake', available: async () => true, assess: async () => ({ risk: 'high', reasons: ['other_concern'], cue }) } }).analyze(frame(text), new AbortController().signal);
-    assert.deepEqual([direct.policy_row, direct.status], valid ? ['12d', 'concern'] : ['6', 'inconclusive'], 'routing directly');
+    assert.deepEqual([direct.policy_row, direct.status], valid ? ['12d', 'inconclusive'] : ['6', 'inconclusive'], 'routing directly');
   });
 }
 
